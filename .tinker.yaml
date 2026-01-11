@@ -1,0 +1,34 @@
+# Tinker Launch Project Configuration
+# =====================================
+# IMPORTANT: This file must be named exactly ".tinker.yaml" (with the leading dot)
+# and placed in the project root directory.
+#
+# This file helps Tinker Launch identify your project in the port registry.
+# The port scanner reads this file to display project info in the dashboard.
+#
+# Instructions for AI agents:
+# 1. Create this file as ".tinker.yaml" in the project root (not "tinker.yaml" or "tinker-launch.yaml")
+# 2. Fill in the fields below:
+#    - name: Human-readable project name (e.g., "My Awesome App")
+#    - description: Brief one-line description of the project
+#    - port: The localhost port this project runs on (for single-port projects)
+#    - org: GitHub org or username (e.g., "todd-g" or "minimagroup")
+#    - repo: GitHub repository name
+#
+# For projects with MULTIPLE PORTS (e.g., frontend + backend), use the "ports" array instead of "port":
+#
+#   name: My Full Stack App
+#   description: Frontend and API server
+#   org: todd-g
+#   repo: my-app
+#   ports:
+#     - port: 3000
+#       name: Frontend
+#     - port: 8000
+#       name: API
+
+name: Tinker Launch
+description: Local project dashboard for rapid scaffolding and port registry
+port: 3000
+org: todd-g
+repo: tinker-launch
