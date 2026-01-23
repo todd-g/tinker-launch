@@ -256,31 +256,40 @@ terminal:
                             )}
                           </TableCell>
                           <TableCell>
-                            <div className="flex flex-col">
-                              {displayName ? (
-                                <a
-                                  href={`http://localhost:${portInfo.port}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-lg font-semibold hover:underline"
-                                >
-                                  {displayName}
-                                </a>
-                              ) : (
-                                <a
-                                  href={`http://localhost:${portInfo.port}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-lg text-muted-foreground italic hover:underline"
-                                >
-                                  Unidentified
-                                </a>
+                            <div className="flex items-center gap-3">
+                              {portInfo.project?.favicon && (
+                                <img
+                                  src={`/api/favicon?path=${encodeURIComponent(portInfo.project.favicon)}`}
+                                  alt=""
+                                  className="w-8 h-8 rounded"
+                                />
                               )}
-                              {subtitle && (
-                                <span className="text-xs text-muted-foreground">
-                                  {subtitle}
-                                </span>
-                              )}
+                              <div className="flex flex-col">
+                                {displayName ? (
+                                  <a
+                                    href={`http://localhost:${portInfo.port}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-lg font-semibold hover:underline"
+                                  >
+                                    {displayName}
+                                  </a>
+                                ) : (
+                                  <a
+                                    href={`http://localhost:${portInfo.port}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-lg text-muted-foreground italic hover:underline"
+                                  >
+                                    Unidentified
+                                  </a>
+                                )}
+                                {subtitle && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {subtitle}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </TableCell>
                           <TableCell>

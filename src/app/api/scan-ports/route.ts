@@ -131,6 +131,15 @@ async function scanPorts(
           project = portRegistry.get(parsed.port);
         }
 
+        // Find favicon if we have a project directory
+        if (project && cwd) {
+          const favicon = await findProjectFavicon(cwd);
+          if (favicon) {
+            project.favicon = favicon;
+            project.projectPath = cwd;
+          }
+        }
+
         // Check if this port has a specific name in the ports array
         let portName: string | undefined;
         if (project?.ports) {
@@ -193,6 +202,15 @@ async function checkSinglePort(
     // Fallback: if no project found from cwd, check the port registry
     if (!project && portRegistry.has(port)) {
       project = portRegistry.get(port);
+    }
+
+    // Find favicon if we have a project directory
+    if (project && cwd) {
+      const favicon = await findProjectFavicon(cwd);
+      if (favicon) {
+        project.favicon = favicon;
+        project.projectPath = cwd;
+      }
     }
 
     // Check if this port has a specific name in the ports array
@@ -647,6 +665,7 @@ async function findTailwindBrandColor(projectDir: string): Promise<string | null
  */
 async function findProjectFavicon(projectDir: string): Promise<string | null> {
   const faviconLocations = [
+    // Next.js / React
     "public/favicon.ico",
     "public/favicon.png",
     "public/favicon.svg",
@@ -656,6 +675,14 @@ async function findProjectFavicon(projectDir: string): Promise<string | null> {
     "src/app/icon.png",
     "app/icon.svg",
     "src/app/icon.svg",
+    // Django / Python backends
+    "static/favicon.ico",
+    "backend/static/favicon.ico",
+    "backend/staticfiles/favicon.ico",
+    // Other common locations
+    "assets/favicon.ico",
+    "assets/images/favicon.ico",
+    "favicon.ico",
   ];
 
   for (const location of faviconLocations) {
