@@ -29,6 +29,21 @@
 
 name: Tinker Launch
 description: Local project dashboard for rapid scaffolding and port registry
-port: 3000
+port: 3001
 org: todd-g
 repo: tinker-launch
+
+# Terminal appearance settings
+# Used by the "Sync Terminal Colors" feature to set per-project terminal backgrounds
+terminal:
+  # Supported formats:
+  #   - HSL:  "hsl(120, 50%, 10%)"   <- recommended for easy tweaking
+  #   - HSB:  "hsb(120, 60%, 15%)"   <- if you prefer HSB/HSV
+  #   - Hex:  "#1a2e1a"              <- classic hex
+  #
+  # Tips for picking colors:
+  #   - Keep lightness/brightness low (8-15%) for readable terminal backgrounds
+  #   - Hue: 0=red, 60=yellow, 120=green, 180=cyan, 240=blue, 300=magenta
+  background: "hsl(180, 50%, 12%)"  # Teal/cyan - blue-green
+  dark: "hsl(180, 51%, 10%)"
+  light: "hsl(180, 41%, 68%)"

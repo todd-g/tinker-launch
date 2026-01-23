@@ -10,7 +10,7 @@ A local project dashboard for rapid scaffolding and management of new projects. 
 - Use Vercel CLI and Convex CLI for all deployments
 
 ## Development
-- Run `npm run dev` for Next.js dev server (port 3000 - reserved for this dashboard)
+- Run `npm run dev` for Next.js dev server (port 3001 - reserved for this dashboard)
 - Run `npx convex dev` for Convex in development mode
 
 ## Key Commands

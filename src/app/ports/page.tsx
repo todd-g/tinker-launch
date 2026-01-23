@@ -8,6 +8,7 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -25,9 +26,10 @@ import {
 } from "@/components/ui/table";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { ExternalLink, Scan, Square } from "lucide-react";
+import { Check, Copy, ExternalLink, Scan, Square } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import type { Project } from "@/types/project";
+import { isLightColor } from "@/lib/colors";
 
 interface TinkerConfig {
   name?: string;
@@ -35,6 +37,14 @@ interface TinkerConfig {
   port?: number;
   org?: string;
   repo?: string;
+  terminal?: {
+    background?: string;
+    dark?: string;
+    light?: string;
+  };
+  terminalColorHex?: string;
+  favicon?: string;
+  projectPath?: string;
 }
 
 interface PortInfo {
@@ -44,6 +54,7 @@ interface PortInfo {
   cwd?: string;
   project?: TinkerConfig;
   portName?: string;
+  favicon?: string;
 }
 
 export default function PortsPage() {
@@ -54,6 +65,17 @@ export default function PortsPage() {
   const [scanning, setScanning] = useState(false);
   const [systemPorts, setSystemPorts] = useState<PortInfo[]>([]);
   const [lastScan, setLastScan] = useState<Date | null>(null);
+  const [yamlCopied, setYamlCopied] = useState(false);
+
+  const tinkerYamlTemplate = `name: Project Name
+description: Brief description of the project
+port: 3002
+org: todd-g
+repo: repo-name
+
+# Terminal appearance (syncs on port scan)
+terminal:
+  background: "hsl(240, 50%, 10%)"  # Dark blue`;
 
   const sortedProjects = projects?.slice().sort((a, b) => a.port - b.port) ?? [];
 
@@ -99,6 +121,18 @@ export default function PortsPage() {
   // Find project for a port
   const getProjectForPort = (port: number) => {
     return projects?.find((p) => p.port === port);
+  };
+
+  // Copy to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+  };
+
+  // Copy YAML template
+  const copyYamlTemplate = () => {
+    navigator.clipboard.writeText(tinkerYamlTemplate);
+    setYamlCopied(true);
+    setTimeout(() => setYamlCopied(false), 2000);
   };
 
   // Kill a process by PID
@@ -187,16 +221,39 @@ export default function PortsPage() {
                       // Use portName (specific to this port) or fall back to project name
                       const displayName = portInfo.portName
                         ? `${portInfo.project?.name} — ${portInfo.portName}`
-                        : portInfo.project?.name || project?.displayName;
+                        : portInfo.project?.name || project?.projectName;
                       const subtitle = portInfo.project?.org && portInfo.project?.repo
                         ? `${portInfo.project.org}/${portInfo.project.repo}`
                         : portInfo.cwd?.replace(/^\/Users\/[^/]+/, "~");
+                      const terminalColor = portInfo.project?.terminalColorHex;
                       return (
-                        <TableRow key={`${portInfo.port}-${portInfo.pid}`}>
-                          <TableCell>
-                            <code className="text-lg font-mono font-bold">
-                              {portInfo.port}
-                            </code>
+                        <TableRow
+                          key={`${portInfo.port}-${portInfo.pid}`}
+                          className="relative"
+                          style={terminalColor ? {
+                            background: `linear-gradient(90deg, ${terminalColor}30 0%, transparent 60%)`,
+                          } : undefined}
+                        >
+                          <TableCell className="w-28">
+                            {terminalColor ? (
+                              <div
+                                className="w-20 h-14 rounded-md shadow-lg flex items-center justify-center"
+                                style={{ backgroundColor: terminalColor }}
+                                title={`Terminal: ${portInfo.project?.terminal?.background}`}
+                              >
+                                <code
+                                  className={`text-xl font-mono font-bold drop-shadow-md ${
+                                    isLightColor(terminalColor) ? "text-gray-900" : "text-white"
+                                  }`}
+                                >
+                                  {portInfo.port}
+                                </code>
+                              </div>
+                            ) : (
+                              <code className="text-lg font-mono font-bold pl-2">
+                                {portInfo.port}
+                              </code>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-col">
@@ -256,6 +313,43 @@ export default function PortsPage() {
             </CardContent>
           </Card>
 
+          {/* .tinker.yaml Template */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-start justify-between">
+                <div>
+                  <CardTitle className="font-mono">.tinker.yaml</CardTitle>
+                  <CardDescription>
+                    Add this file to your project root to register it in the port scanner
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={copyYamlTemplate}
+                  className="shrink-0"
+                >
+                  {yamlCopied ? (
+                    <>
+                      <Check className="h-4 w-4 mr-1" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4 mr-1" />
+                      Copy
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <pre className="bg-muted p-4 rounded-lg text-sm font-mono overflow-x-auto">
+                {tinkerYamlTemplate}
+              </pre>
+            </CardContent>
+          </Card>
+
           {/* Registered Projects */}
           <Card>
             <CardHeader>
@@ -292,7 +386,7 @@ export default function PortsPage() {
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-col">
-                              <span className="font-medium">{project.displayName}</span>
+                              <span className="font-medium">{project.projectName}</span>
                               <span className="text-xs text-muted-foreground">
                                 {project.org}/{project.repoName}
                               </span>
