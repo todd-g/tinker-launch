@@ -3,7 +3,7 @@ import { promisify } from "util";
 
 const execAsync = promisify(exec);
 
-export type GitHubOrg = "todd-g" | "minimagroup";
+export type GitHubOrg = string;
 
 export interface CreateRepoOptions {
   repoName: string;
@@ -65,4 +65,75 @@ export async function isGhAuthenticated(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Get the org/owner from a git remote URL
+ * Supports both HTTPS and SSH formats:
+ * - https://github.com/owner/repo.git
+ * - git@github.com:owner/repo.git
+ */
+export function parseGitRemoteOrg(remoteUrl: string): string | null {
+  // HTTPS format: https://github.com/owner/repo.git
+  const httpsMatch = remoteUrl.match(/github\.com\/([^/]+)\//);
+  if (httpsMatch) {
+    return httpsMatch[1];
+  }
+
+  // SSH format: git@github.com:owner/repo.git
+  const sshMatch = remoteUrl.match(/github\.com:([^/]+)\//);
+  if (sshMatch) {
+    return sshMatch[1];
+  }
+
+  return null;
+}
+
+/**
+ * Get the repo name from a git remote URL
+ */
+export function parseGitRemoteRepo(remoteUrl: string): string | null {
+  // Match repo name (without .git extension)
+  const match = remoteUrl.match(/\/([^/]+?)(\.git)?$/);
+  if (match) {
+    return match[1];
+  }
+  return null;
+}
+
+/**
+ * Get the git remote origin URL for a directory
+ */
+export async function getGitRemoteUrl(localPath: string): Promise<string | null> {
+  try {
+    const { stdout } = await execAsync("git remote get-url origin", { cwd: localPath });
+    return stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the org from a project's git remote
+ */
+export async function getProjectOrg(localPath: string): Promise<string | null> {
+  const remoteUrl = await getGitRemoteUrl(localPath);
+  if (!remoteUrl) return null;
+  return parseGitRemoteOrg(remoteUrl);
+}
+
+/**
+ * Get both org and repo name from a project's git remote
+ */
+export async function getProjectGitInfo(localPath: string): Promise<{ org: string; repo: string } | null> {
+  const remoteUrl = await getGitRemoteUrl(localPath);
+  if (!remoteUrl) return null;
+
+  const org = parseGitRemoteOrg(remoteUrl);
+  const repo = parseGitRemoteRepo(remoteUrl);
+
+  if (org && repo) {
+    return { org, repo };
+  }
+  return null;
 }

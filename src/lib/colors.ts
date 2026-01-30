@@ -187,8 +187,8 @@ export function generateTerminalColors(brandColor: string): { dark: string; ligh
 
   const hsl = rgbToHsl(rgb);
 
-  // For dark mode: Keep hue, moderate saturation, very low lightness (8-15%)
-  const darkL = Math.max(8, Math.min(15, hsl.l > 50 ? 12 : 10));
+  // For dark mode: Keep hue, moderate saturation, low lightness (15-22%)
+  const darkL = Math.max(15, Math.min(22, hsl.l > 50 ? 18 : 16));
   const darkS = Math.max(30, Math.min(60, hsl.s));
 
   // For light mode: Keep hue, moderate saturation, medium lightness (65-72%)

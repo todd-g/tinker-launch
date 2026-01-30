@@ -3,7 +3,7 @@ import { mutation, query } from "./_generated/server";
 
 export const list = query({
   args: {
-    org: v.optional(v.union(v.literal("todd-g"), v.literal("minimagroup"))),
+    org: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     if (args.org) {
@@ -47,7 +47,7 @@ export const create = mutation({
   args: {
     repoName: v.string(),
     projectName: v.string(),
-    org: v.union(v.literal("todd-g"), v.literal("minimagroup")),
+    org: v.string(),
     description: v.string(),
     localPath: v.string(),
     githubUrl: v.string(),
