@@ -42,7 +42,7 @@ gh auth login
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+Open [http://localhost:3001](http://localhost:3001)
 
 ### 5. Configure your organizations
 
