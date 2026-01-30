@@ -44,12 +44,18 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000)
 
+### 5. Configure your organizations
+
+Go to **Settings → Credentials** and add your GitHub orgs/usernames mapped to credential accounts. This enables the sidebar org filter and credential generation for new projects.
+
+You can optionally set the `PROJECTS_DIR` environment variable to customize where new projects are created (defaults to `~/Documents/GitHub`).
+
 ## Features
 
 - **Project Creation**: Create new GitHub repos with one click
 - **Auto-scaffolding**: Generates CLAUDE.md, TECH_STACK.md, and .gitignore
 - **Port Registry**: Track which project runs on which localhost port
-- **Organization Support**: Choose between personal (todd-g) or company (minimagroup) repos
+- **Organization Support**: Configure your GitHub orgs/usernames in Settings → Credentials
 
 ## Tech Stack
 

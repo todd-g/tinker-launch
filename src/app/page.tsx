@@ -18,17 +18,42 @@ import {
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useState, useEffect } from "react";
+
+interface Account {
+  name: string;
+  vercel_token: string;
+}
+
+interface Credentials {
+  accounts: Record<string, Account>;
+  org_mapping: Record<string, string>;
+}
 
 function ProjectsPageContent() {
   const searchParams = useSearchParams();
-  const orgFilter = searchParams.get("org") as "todd-g" | "minimagroup" | null;
+  const orgFilter = searchParams.get("org") as string | null;
+  const [credentials, setCredentials] = useState<Credentials | null>(null);
 
-  const pageTitle = orgFilter
-    ? orgFilter === "todd-g"
-      ? "Personal Projects"
-      : "Company Projects"
-    : "All Projects";
+  useEffect(() => {
+    fetch("/api/credentials")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setCredentials(data.credentials);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  let pageTitle = "All Projects";
+  if (orgFilter && credentials) {
+    const accountKey = credentials.org_mapping[orgFilter];
+    const account = accountKey ? credentials.accounts[accountKey] : null;
+    pageTitle = account ? `${account.name} Projects` : `${orgFilter} Projects`;
+  } else if (orgFilter) {
+    pageTitle = `${orgFilter} Projects`;
+  }
 
   return (
     <SidebarProvider>

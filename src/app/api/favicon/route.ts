@@ -9,9 +9,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Missing path" }, { status: 400 });
   }
 
-  // Security: only allow paths under ~/Documents/GitHub
+  // Security: only allow paths under the projects directory
   const homeDir = process.env.HOME || "";
-  const allowedPrefix = `${homeDir}/Documents/GitHub/`;
+  const allowedPrefix = process.env.PROJECTS_DIR
+    ? `${process.env.PROJECTS_DIR}/`
+    : `${homeDir}/Documents/GitHub/`;
   if (!path.startsWith(allowedPrefix)) {
     return NextResponse.json({ error: "Invalid path" }, { status: 403 });
   }

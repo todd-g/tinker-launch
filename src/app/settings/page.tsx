@@ -26,7 +26,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useState, useEffect } from "react";
-import { Save, RotateCcw } from "lucide-react";
+import { Save, RotateCcw, Key, ChevronRight, FolderSearch } from "lucide-react";
+import Link from "next/link";
 
 const DEFAULT_TECH_STACK = `# Tech Stack
 
@@ -59,16 +60,31 @@ const DEFAULT_CLAUDE_TEMPLATE = `# {projectName}
 - Tailwind CSS 4 with shadcn/ui (sidebar-08 variant)
 - Convex for database/backend
 - Vercel for hosting
-- Use Vercel CLI and Convex CLI for all deployments
 
 ## Development
 - Run \`npm run dev\` for Next.js dev server
 - Run \`npx convex dev\` for Convex in development mode
 - Local dev server runs on port {port}
 
-## Commands
-- \`vercel\` - Deploy to Vercel
-- \`npx convex deploy\` - Deploy Convex functions
+## Deployments & Credentials
+
+This project uses credential files managed by Tinker Launch. The \`.envrc\` file contains environment variables for Vercel and Convex authentication.
+
+**Using cli.sh (recommended for agents):**
+\`\`\`bash
+./cli.sh vercel              # Deploy to Vercel
+./cli.sh npx convex deploy   # Deploy Convex functions
+./cli.sh vercel whoami       # Check which Vercel account is active
+\`\`\`
+
+**If direnv is installed:**
+The credentials auto-load when you \`cd\` into this directory. You can then run commands directly:
+\`\`\`bash
+vercel
+npx convex deploy
+\`\`\`
+
+**Important:** Never commit \`.envrc\` - it contains sensitive tokens and is gitignored.
 `;
 
 export default function SettingsPage() {
@@ -133,6 +149,50 @@ export default function SettingsPage() {
           </Button>
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+          {/* Credentials Link Card */}
+          <Link href="/settings/credentials">
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-primary/10 p-2 rounded-lg">
+                      <Key className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-base">Credentials</CardTitle>
+                      <CardDescription>
+                        Manage Vercel/Convex accounts and org mappings
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </div>
+              </CardHeader>
+            </Card>
+          </Link>
+
+          {/* Import Projects Link Card */}
+          <Link href="/settings/import">
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-primary/10 p-2 rounded-lg">
+                      <FolderSearch className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-base">Import Projects</CardTitle>
+                      <CardDescription>
+                        Scan and import existing projects from your projects directory
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </div>
+              </CardHeader>
+            </Card>
+          </Link>
+
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">

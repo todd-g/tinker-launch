@@ -70,12 +70,15 @@ export default function PortsPage() {
   const tinkerYamlTemplate = `name: Project Name
 description: Brief description of the project
 port: 3002
-org: todd-g
+org: your-org
 repo: repo-name
 
 # Terminal appearance (syncs on port scan)
+# Supports HSL, HSB, or hex formats
 terminal:
-  background: "hsl(240, 50%, 10%)"  # Dark blue`;
+  background: "hsl(240, 50%, 10%)"  # Fallback color
+  dark: "hsl(240, 50%, 10%)"        # Dark mode
+  light: "hsl(240, 40%, 70%)"       # Light mode`;
 
   const sortedProjects = projects?.slice().sort((a, b) => a.port - b.port) ?? [];
 
@@ -155,7 +158,6 @@ terminal:
       console.error("Failed to kill process:", error);
     }
   };
-
 
   return (
     <SidebarProvider>

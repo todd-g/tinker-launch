@@ -16,9 +16,7 @@ import { Button } from "@/components/ui/button";
 import { ExternalLink, Github, Terminal, FolderOpen } from "lucide-react";
 import Link from "next/link";
 
-type OrgFilter = "todd-g" | "minimagroup" | undefined;
-
-export function ProjectList({ orgFilter }: { orgFilter?: OrgFilter }) {
+export function ProjectList({ orgFilter }: { orgFilter?: string }) {
   const projectsData = useQuery(api.projects.list, { org: orgFilter });
   const projects = projectsData as Project[] | undefined;
 
@@ -64,7 +62,7 @@ export function ProjectList({ orgFilter }: { orgFilter?: OrgFilter }) {
               </div>
             </TableCell>
             <TableCell>
-              <Badge variant={project.org === "todd-g" ? "default" : "secondary"}>
+              <Badge variant="secondary">
                 {project.org}
               </Badge>
             </TableCell>

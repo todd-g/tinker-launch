@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { FolderPlus, Folders, Rocket, Settings, Network } from "lucide-react";
 
@@ -17,61 +18,100 @@ import {
 } from "@/components/ui/sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-const data = {
-  navMain: [
+interface Account {
+  name: string;
+  vercel_token: string;
+}
+
+interface Credentials {
+  accounts: Record<string, Account>;
+  org_mapping: Record<string, string>;
+}
+
+const staticNavMain = [
+  {
+    title: "Ports",
+    url: "/ports",
+    icon: Network,
+    items: [
+      {
+        title: "Port Registry",
+        url: "/ports",
+      },
+    ],
+  },
+  {
+    title: "Settings",
+    url: "/settings",
+    icon: Settings,
+    items: [
+      {
+        title: "Templates",
+        url: "/settings",
+      },
+      {
+        title: "Credentials",
+        url: "/settings/credentials",
+      },
+      {
+        title: "Import Projects",
+        url: "/settings/import",
+      },
+    ],
+  },
+];
+
+const navSecondary = [
+  {
+    title: "New Project",
+    url: "/new",
+    icon: FolderPlus,
+  },
+];
+
+export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const [credentials, setCredentials] = useState<Credentials | null>(null);
+
+  useEffect(() => {
+    fetch("/api/credentials")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setCredentials(data.credentials);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const orgItems: { title: string; url: string }[] = [
+    { title: "All Projects", url: "/" },
+  ];
+
+  if (credentials) {
+    const orgs = Object.keys(credentials.org_mapping);
+    if (orgs.length > 0) {
+      for (const org of orgs) {
+        const accountKey = credentials.org_mapping[org];
+        const account = credentials.accounts[accountKey];
+        const label = account ? `${account.name} (${org})` : org;
+        orgItems.push({ title: label, url: `/?org=${org}` });
+      }
+    } else {
+      orgItems.push({ title: "Configure orgs...", url: "/settings/credentials" });
+    }
+  }
+
+  const navMain = [
     {
       title: "Projects",
       url: "/",
       icon: Folders,
       isActive: true,
-      items: [
-        {
-          title: "All Projects",
-          url: "/",
-        },
-        {
-          title: "Personal (todd-g)",
-          url: "/?org=todd-g",
-        },
-        {
-          title: "Company (minimagroup)",
-          url: "/?org=minimagroup",
-        },
-      ],
+      items: orgItems,
     },
-    {
-      title: "Ports",
-      url: "/ports",
-      icon: Network,
-      items: [
-        {
-          title: "Port Registry",
-          url: "/ports",
-        },
-      ],
-    },
-    {
-      title: "Settings",
-      url: "/settings",
-      icon: Settings,
-      items: [
-        {
-          title: "Defaults",
-          url: "/settings",
-        },
-      ],
-    },
-  ],
-  navSecondary: [
-    {
-      title: "New Project",
-      url: "/new",
-      icon: FolderPlus,
-    },
-  ],
-};
+    ...staticNavMain,
+  ];
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar variant="inset" {...props}>
       <SidebarHeader>
@@ -92,8 +132,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
-        <NavSecondary items={data.navSecondary} className="mt-auto" />
+        <NavMain items={navMain} />
+        <NavSecondary items={navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
         <ThemeToggle />

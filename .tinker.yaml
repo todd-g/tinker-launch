@@ -12,14 +12,14 @@
 #    - name: Human-readable project name (e.g., "My Awesome App")
 #    - description: Brief one-line description of the project
 #    - port: The localhost port this project runs on (for single-port projects)
-#    - org: GitHub org or username (e.g., "todd-g" or "minimagroup")
+#    - org: GitHub org or username (e.g., "your-username" or "your-org")
 #    - repo: GitHub repository name
 #
 # For projects with MULTIPLE PORTS (e.g., frontend + backend), use the "ports" array instead of "port":
 #
 #   name: My Full Stack App
 #   description: Frontend and API server
-#   org: todd-g
+#   org: your-username
 #   repo: my-app
 #   ports:
 #     - port: 3000
@@ -30,7 +30,7 @@
 name: Tinker Launch
 description: Local project dashboard for rapid scaffolding and port registry
 port: 3001
-org: todd-g
+org: your-username
 repo: tinker-launch
 
 # Terminal appearance settings

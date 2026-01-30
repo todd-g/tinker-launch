@@ -5,7 +5,7 @@ export default defineSchema({
   projects: defineTable({
     repoName: v.string(),
     projectName: v.string(),
-    org: v.union(v.literal("todd-g"), v.literal("minimagroup")),
+    org: v.string(), // GitHub org or username
     description: v.string(),
     localPath: v.string(),
     githubUrl: v.string(),

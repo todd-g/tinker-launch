@@ -13,7 +13,7 @@ When starting new projects daily, the setup process is repetitive and error-pron
 ### Input (Minimal User Entry)
 - **Repo name** (kebab-case, e.g., `my-new-project`)
 - **Project name** (display name, e.g., "My New Project")
-- **GitHub org**: `todd-g` (personal) or `minimagroup` (company)
+- **GitHub org**: any configured org or username
 - **One-paragraph description**
 
 ### Output (Automated)
@@ -135,19 +135,19 @@ Tinker Launch maintains a central port registry:
 
 #### Sidebar
 - Projects list (grouped by org)
-- Quick filter: All / Personal / Company
+- Quick filter: All / per-org filters
 - "+ New Project" button
 
 #### Main Panel: Project List
 | Project | Org | Port | Status | Actions |
 |---------|-----|------|--------|---------|
-| my-project | todd-g | 3001 | Running | Open / Stop / GitHub |
-| client-app | minimagroup | 3002 | Stopped | Start / GitHub |
+| my-project | my-username | 3001 | Running | Open / Stop / GitHub |
+| client-app | my-org | 3002 | Stopped | Start / GitHub |
 
 #### New Project Modal
 - Repo name input
 - Project name input
-- Org selector (radio: todd-g / minimagroup)
+- Org selector (dropdown from configured orgs)
 - Description textarea
 - "Create Project" button
 
@@ -166,7 +166,7 @@ Tinker Launch can also be invoked via CLI for scripting:
 
 ```bash
 # Create new project
-tinker-launch create my-project --org todd-g --name "My Project" --desc "A cool thing"
+tinker-launch create my-project --org my-username --name "My Project" --desc "A cool thing"
 
 # List projects
 tinker-launch list

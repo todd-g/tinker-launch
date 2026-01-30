@@ -165,7 +165,7 @@ async function scanPorts(
 
 function parseLsofLine(line: string): { port: number; pid: number; command: string } | null {
   // lsof output format: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME (STATE)
-  // Example: node 21661 toddgalloway 16u IPv6 0x... 0t0 TCP *:3000 (LISTEN)
+  // Example: node 21661 username 16u IPv6 0x... 0t0 TCP *:3000 (LISTEN)
   const parts = line.trim().split(/\s+/);
   if (parts.length < 9) return null;
 
@@ -530,6 +530,7 @@ async function buildPortRegistry(
 
   // Directories to scan for projects
   const projectDirs = [
+    ...(process.env.PROJECTS_DIR ? [process.env.PROJECTS_DIR] : []),
     path.join(process.env.HOME || "", "Documents/GitHub"),
     path.join(process.env.HOME || "", "Projects"),
     path.join(process.env.HOME || "", "Code"),

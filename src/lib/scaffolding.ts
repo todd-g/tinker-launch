@@ -5,6 +5,7 @@ import path from "path";
 export interface ProjectConfig {
   repoName: string;
   projectName: string;
+  org: string;
   description: string;
   port: number;
 }
@@ -89,20 +90,20 @@ function generateTinkerYaml(config: ProjectConfig): string {
 #    - name: Human-readable project name (e.g., "My Awesome App")
 #    - description: Brief one-line description of the project
 #    - port: The localhost port this project runs on (must match your dev server config)
-#    - org: GitHub org or username (e.g., "todd-g" or "minimagroup")
+#    - org: GitHub org or username (e.g., "your-username" or "your-org")
 #    - repo: GitHub repository name
 #
 # Example:
 #   name: My Awesome App
 #   description: A dashboard for managing widgets
 #   port: 3001
-#   org: todd-g
+#   org: your-username
 #   repo: my-awesome-app
 
 name: ${config.projectName}
 description: ${config.description}
 port: ${config.port}
-org: todd-g
+org: ${config.org}
 repo: ${config.repoName}
 `;
 }

@@ -2,7 +2,7 @@ export interface Project {
   _id: string;
   repoName: string;
   projectName: string;
-  org: "todd-g" | "minimagroup";
+  org: string;
   description: string;
   localPath: string;
   githubUrl: string;

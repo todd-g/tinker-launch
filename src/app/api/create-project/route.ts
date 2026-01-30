@@ -33,6 +33,7 @@ export async function POST(request: Request) {
     const scaffoldResult = await scaffoldProject({
       repoName,
       projectName,
+      org,
       description,
       port,
     });

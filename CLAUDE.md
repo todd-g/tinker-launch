@@ -13,9 +13,27 @@ A local project dashboard for rapid scaffolding and management of new projects. 
 - Run `npm run dev` for Next.js dev server (port 3001 - reserved for this dashboard)
 - Run `npx convex dev` for Convex in development mode
 
-## Key Commands
-- `vercel` - Deploy to Vercel
-- `npx convex deploy` - Deploy Convex functions
+## Deployments & Credentials
+
+This project uses credential files managed by Tinker Launch. The `.envrc` file contains environment variables for Vercel and Convex authentication.
+
+**Using cli.sh (recommended for agents):**
+```bash
+./cli.sh vercel              # Deploy to Vercel
+./cli.sh npx convex deploy   # Deploy Convex functions
+./cli.sh vercel whoami       # Check which Vercel account is active
+```
+
+**If direnv is installed:**
+The credentials auto-load when you `cd` into this directory. You can then run commands directly:
+```bash
+vercel
+npx convex deploy
+```
+
+**Important:** Never commit `.envrc` - it contains sensitive tokens and is gitignored.
+
+## Other Commands
 - `gh` - GitHub CLI for repo creation
 
 ## Project Structure (Planned)
