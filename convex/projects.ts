@@ -76,6 +76,16 @@ export const updateStatus = mutation({
   },
 });
 
+export const updateOrg = mutation({
+  args: {
+    id: v.id("projects"),
+    org: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, { org: args.org });
+  },
+});
+
 export const remove = mutation({
   args: { id: v.id("projects") },
   handler: async (ctx, args) => {
