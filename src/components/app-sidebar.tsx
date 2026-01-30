@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { FolderPlus, Folders, Rocket, Settings, Network } from "lucide-react";
+import { BookOpen, FolderPlus, Folders, Network, Rocket, Settings } from "lucide-react";
 
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
@@ -37,6 +37,17 @@ const staticNavMain = [
       {
         title: "Port Registry",
         url: "/ports",
+      },
+    ],
+  },
+  {
+    title: "Documentation",
+    url: "/docs",
+    icon: BookOpen,
+    items: [
+      {
+        title: "Guide",
+        url: "/docs",
       },
     ],
   },
