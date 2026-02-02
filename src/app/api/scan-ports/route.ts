@@ -605,6 +605,7 @@ async function findTailwindBrandColor(projectDir: string): Promise<string | null
     "tailwind.config.mjs",
   ];
 
+  // First, try to extract color from Tailwind config files (v3 and earlier)
   for (const configFile of configFiles) {
     const configPath = path.join(projectDir, configFile);
     if (!existsSync(configPath)) continue;
@@ -629,28 +630,31 @@ async function findTailwindBrandColor(projectDir: string): Promise<string | null
           if (color) return color;
         }
       }
+    } catch {
+      continue;
+    }
+  }
 
-      // Also check for CSS variable references in globals.css
-      const globalsPath = path.join(projectDir, "src/app/globals.css");
-      const altGlobalsPath = path.join(projectDir, "app/globals.css");
-      const stylesPath = path.join(projectDir, "styles/globals.css");
+  // Fallback: check CSS globals for CSS variable definitions (Tailwind v4+)
+  const globalsPath = path.join(projectDir, "src/app/globals.css");
+  const altGlobalsPath = path.join(projectDir, "app/globals.css");
+  const stylesPath = path.join(projectDir, "styles/globals.css");
 
-      for (const cssPath of [globalsPath, altGlobalsPath, stylesPath]) {
-        if (existsSync(cssPath)) {
-          const cssContent = await readFile(cssPath, "utf-8");
-          // Look for --primary or --brand CSS variables
-          const cssPatterns = [
-            /--primary\s*:\s*([^;]+);/,
-            /--brand\s*:\s*([^;]+);/,
-            /--accent\s*:\s*([^;]+);/,
-          ];
-          for (const pattern of cssPatterns) {
-            const match = cssContent.match(pattern);
-            if (match) {
-              const color = parseTailwindColor(match[1].trim());
-              if (color) return color;
-            }
-          }
+  for (const cssPath of [globalsPath, altGlobalsPath, stylesPath]) {
+    if (!existsSync(cssPath)) continue;
+    try {
+      const cssContent = await readFile(cssPath, "utf-8");
+      // Look for --primary or --brand CSS variables
+      const cssPatterns = [
+        /--primary\s*:\s*([^;]+);/,
+        /--brand\s*:\s*([^;]+);/,
+        /--accent\s*:\s*([^;]+);/,
+      ];
+      for (const pattern of cssPatterns) {
+        const match = cssContent.match(pattern);
+        if (match) {
+          const color = parseTailwindColor(match[1].trim());
+          if (color) return color;
         }
       }
     } catch {
