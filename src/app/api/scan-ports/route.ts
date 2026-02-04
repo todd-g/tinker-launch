@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { readFile, writeFile } from "fs/promises";
-import { existsSync } from "fs";
+import { readFile, writeFile, readdir } from "fs/promises";
+import { existsSync, statSync } from "fs";
 import path from "path";
 import {
   parseColor,
@@ -636,15 +636,60 @@ async function findTailwindBrandColor(projectDir: string): Promise<string | null
   }
 
   // Fallback: check CSS globals for CSS variable definitions (Tailwind v4+)
-  const globalsPath = path.join(projectDir, "src/app/globals.css");
-  const altGlobalsPath = path.join(projectDir, "app/globals.css");
-  const stylesPath = path.join(projectDir, "styles/globals.css");
+  const cssRelPaths = [
+    "src/app/globals.css",
+    "app/globals.css",
+    "styles/globals.css",
+  ];
 
-  for (const cssPath of [globalsPath, altGlobalsPath, stylesPath]) {
+  const color = await findBrandColorInCssPaths(projectDir, cssRelPaths);
+  if (color) return color;
+
+  // Final fallback: search one level of subdirectories for projects
+  // where the web app lives in a nested folder (e.g., spikes/video-sync/)
+  try {
+    const entries = await readdir(projectDir);
+    for (const entry of entries) {
+      if (entry === "node_modules" || entry === ".next" || entry === ".git") continue;
+      const subDir = path.join(projectDir, entry);
+      try {
+        if (!statSync(subDir).isDirectory()) continue;
+      } catch { continue; }
+
+      // Check if this subdir has a package.json (is an app)
+      if (!existsSync(path.join(subDir, "package.json"))) {
+        // Also check one more level deep (e.g., spikes/video-sync/)
+        try {
+          const innerEntries = await readdir(subDir);
+          for (const inner of innerEntries) {
+            if (inner === "node_modules") continue;
+            const innerDir = path.join(subDir, inner);
+            try {
+              if (!statSync(innerDir).isDirectory()) continue;
+            } catch { continue; }
+            if (existsSync(path.join(innerDir, "package.json"))) {
+              const innerColor = await findBrandColorInCssPaths(innerDir, cssRelPaths);
+              if (innerColor) return innerColor;
+            }
+          }
+        } catch { /* skip */ }
+        continue;
+      }
+
+      const subColor = await findBrandColorInCssPaths(subDir, cssRelPaths);
+      if (subColor) return subColor;
+    }
+  } catch { /* skip */ }
+
+  return null;
+}
+
+async function findBrandColorInCssPaths(baseDir: string, relPaths: string[]): Promise<string | null> {
+  for (const relPath of relPaths) {
+    const cssPath = path.join(baseDir, relPath);
     if (!existsSync(cssPath)) continue;
     try {
       const cssContent = await readFile(cssPath, "utf-8");
-      // Look for --primary or --brand CSS variables
       const cssPatterns = [
         /--primary\s*:\s*([^;]+);/,
         /--brand\s*:\s*([^;]+);/,
@@ -661,7 +706,6 @@ async function findTailwindBrandColor(projectDir: string): Promise<string | null
       continue;
     }
   }
-
   return null;
 }
 
