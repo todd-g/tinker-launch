@@ -320,3 +320,38 @@ export async function deleteOrg(org: string): Promise<void> {
   delete credentials.org_mapping[org];
   await writeCredentials(credentials);
 }
+
+/**
+ * Regenerate the .envrc file for a project if it exists.
+ * Returns true if the file was regenerated, false if skipped.
+ */
+export async function regenerateEnvrcForProject(
+  credentials: Credentials,
+  repoName: string,
+  projectPath: string,
+  org: string
+): Promise<{ regenerated: boolean; reason?: string }> {
+  const envrcPath = path.join(projectPath, ".envrc");
+
+  // Only regenerate if .envrc already exists (project was previously set up)
+  if (!existsSync(envrcPath)) {
+    return { regenerated: false, reason: "no .envrc found" };
+  }
+
+  // Find the account for this project's org
+  const accountKey = getAccountForOrg(credentials, org);
+  if (!accountKey) {
+    return { regenerated: false, reason: `no account mapped for org "${org}"` };
+  }
+
+  const account = getAccount(credentials, accountKey);
+  if (!account) {
+    return { regenerated: false, reason: `account "${accountKey}" not found` };
+  }
+
+  const convexKeys = getConvexKeys(credentials, repoName);
+  const envrcContent = generateEnvrcContent(account, convexKeys);
+  await writeFile(envrcPath, envrcContent);
+
+  return { regenerated: true };
+}

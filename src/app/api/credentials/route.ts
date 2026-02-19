@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../convex/_generated/api";
 import {
   readCredentials,
   writeCredentials,
   getMaskedCredentials,
+  regenerateEnvrcForProject,
 } from "@/lib/credentials";
 
 /**
@@ -137,9 +140,37 @@ export async function POST(request: Request) {
 
     await writeCredentials(credentials);
 
+    // Auto-regenerate .envrc when Convex keys change
+    let envrcSync: { repoName: string; regenerated: boolean; reason?: string }[] = [];
+
+    if (body.setConvexKeys) {
+      const repoName = body.setConvexKeys.repoName;
+      try {
+        const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+        if (convexUrl) {
+          const convex = new ConvexHttpClient(convexUrl);
+          const project = await convex.query(api.projects.getByRepoName, { repoName });
+          if (project?.localPath && project?.org) {
+            const result = await regenerateEnvrcForProject(
+              credentials,
+              repoName,
+              project.localPath,
+              project.org
+            );
+            envrcSync.push({ repoName, ...result });
+          } else {
+            envrcSync.push({ repoName, regenerated: false, reason: "project not found in database" });
+          }
+        }
+      } catch (e) {
+        console.error("Error during .envrc auto-sync for", repoName, e);
+        envrcSync.push({ repoName, regenerated: false, reason: `sync failed: ${e instanceof Error ? e.message : "unknown"}` });
+      }
+    }
+
     // Return masked credentials
     const masked = getMaskedCredentials(credentials);
-    return NextResponse.json({ success: true, credentials: masked });
+    return NextResponse.json({ success: true, credentials: masked, envrcSync });
   } catch (error) {
     console.error("Error updating credentials:", error);
     return NextResponse.json(
