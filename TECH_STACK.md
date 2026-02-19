@@ -4,6 +4,7 @@
 - **Framework**: Next.js (latest stable, App Router)
 - **Styling**: Tailwind CSS 4
 - **Components**: shadcn/ui with sidebar-08 layout
+  - **Important**: Never build a custom sidebar — always use the `sidebar-08` block as the base and customize from there
 
 ## Backend
 - **Database & Functions**: Convex
