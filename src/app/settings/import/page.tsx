@@ -43,8 +43,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useState, useEffect, useCallback } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "../../../../convex/_generated/api";
+import { useDbQuery, useDbMutation } from "@/hooks/use-db";
 import {
   FolderSearch,
   RefreshCw,
@@ -111,10 +110,12 @@ export default function ImportProjectsPage() {
   const [generatingCredentials, setGeneratingCredentials] = useState(false);
   const [credentialStatuses, setCredentialStatuses] = useState<Record<string, "pending" | "generating" | "success" | "error">>({});
 
-  // Convex
-  const existingProjects = useQuery(api.projects.list, {});
-  const createProject = useMutation(api.projects.create);
-  const nextPort = useQuery(api.projects.getNextPort);
+  // Database
+  const { data: existingProjectsData, refetch: refetchProjects } = useDbQuery<{ success: boolean; projects: Array<{ id: string; repoName: string; [key: string]: unknown }> }>("/api/db/projects");
+  const existingProjects = existingProjectsData?.projects;
+  const { mutate: createProjectApi } = useDbMutation("/api/db/projects");
+  const { data: nextPortData } = useDbQuery<{ success: boolean; port: number }>("/api/db/projects", { action: "nextPort" });
+  const nextPort = nextPortData?.port;
 
   // Get set of existing repo names for quick lookup
   const existingRepoNames = new Set(existingProjects?.map((p) => p.repoName) || []);
@@ -208,14 +209,17 @@ export default function ImportProjectsPage() {
         const description = project.tinkerConfig?.description || `Imported project: ${project.repo}`;
         const port = project.tinkerConfig?.port || currentPort++;
 
-        await createProject({
-          repoName: project.repo,
-          projectName,
-          org: project.org,
-          description,
-          localPath: project.localPath,
-          githubUrl: project.githubUrl || "",
-          port,
+        await createProjectApi({
+          action: "create",
+          data: {
+            repoName: project.repo,
+            projectName,
+            org: project.org,
+            description,
+            localPath: project.localPath,
+            githubUrl: project.githubUrl || "",
+            port,
+          },
         });
 
         setImportStatuses((prev) => ({

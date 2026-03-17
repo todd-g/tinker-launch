@@ -50,8 +50,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useState, useEffect, useCallback } from "react";
-import { useQuery } from "convex/react";
-import { api } from "../../../../convex/_generated/api";
+import { useDbQuery } from "@/hooks/use-db";
 import {
   Plus,
   Pencil,
@@ -146,7 +145,8 @@ export default function CredentialsPage() {
   const [deleteOrg, setDeleteOrg] = useState<string | null>(null);
 
   // Bulk update state
-  const projects = useQuery(api.projects.list, {});
+  const { data: projectsData } = useDbQuery<{ success: boolean; projects: Array<{ id: string; repoName: string; projectName: string; org: string; localPath: string; [key: string]: unknown }> }>("/api/db/projects");
+  const projects = projectsData?.projects;
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
   const [projectStatuses, setProjectStatuses] = useState<Record<string, ProjectGenStatus>>({});
   const [bulkGenerating, setBulkGenerating] = useState(false);
@@ -382,7 +382,7 @@ export default function CredentialsPage() {
     if (selectedProjects.size === projects.length) {
       setSelectedProjects(new Set());
     } else {
-      setSelectedProjects(new Set(projects.map((p) => p._id)));
+      setSelectedProjects(new Set(projects.map((p) => p.id)));
     }
   };
 
@@ -394,7 +394,7 @@ export default function CredentialsPage() {
     const newStatuses: Record<string, ProjectGenStatus> = {};
 
     for (const projectId of selectedProjects) {
-      const project = projects.find((p) => p._id === projectId);
+      const project = projects.find((p) => p.id === projectId);
       if (!project) continue;
 
       // Check if account is configured for this org
@@ -874,18 +874,18 @@ export default function CredentialsPage() {
                   <TableBody>
                     {projects.map((project) => {
                       const account = getProjectAccountInfo(project.org);
-                      const status = projectStatuses[project._id];
+                      const status = projectStatuses[project.id];
                       const hasVercelToken = account && account.vercel_token;
                       const convexKeys = credentials?.convex_keys?.[project.repoName];
                       const hasConvexKeys = convexKeys?.production || convexKeys?.preview || convexKeys?.dev;
 
                       return (
-                        <TableRow key={project._id}>
+                        <TableRow key={project.id}>
                           <TableCell>
                             <input
                               type="checkbox"
-                              checked={selectedProjects.has(project._id)}
-                              onChange={() => toggleProjectSelection(project._id)}
+                              checked={selectedProjects.has(project.id)}
+                              onChange={() => toggleProjectSelection(project.id)}
                               className="h-4 w-4 rounded border-gray-300"
                             />
                           </TableCell>

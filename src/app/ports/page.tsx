@@ -24,8 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useQuery, useMutation } from "convex/react";
-import { api } from "../../../convex/_generated/api";
+import { useDbQuery, useDbMutation } from "@/hooks/use-db";
 import { Check, Copy, ExternalLink, Scan, Square } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import type { Project } from "@/types/project";
@@ -58,9 +57,9 @@ interface PortInfo {
 }
 
 export default function PortsPage() {
-  const projectsData = useQuery(api.projects.list, {});
-  const projects = projectsData as Project[] | undefined;
-  const updateStatus = useMutation(api.projects.updateStatus);
+  const { data: projectsData, refetch: refetchProjects } = useDbQuery<{ success: boolean; projects: Project[] }>("/api/db/projects");
+  const projects = projectsData?.projects;
+  const { mutate: updateStatusApi } = useDbMutation("/api/db/projects");
 
   const [scanning, setScanning] = useState(false);
   const [systemPorts, setSystemPorts] = useState<PortInfo[]>([]);
@@ -97,8 +96,9 @@ terminal:
             const portInfo = data.ports.find((p: PortInfo) => p.port === project.port);
             const newStatus = portInfo ? "running" : "stopped";
             if (project.status !== newStatus) {
-              await updateStatus({
-                id: project._id as never,
+              await updateStatusApi({
+                action: "updateStatus",
+                id: project.id,
                 status: newStatus,
                 pid: portInfo?.pid,
               });
@@ -110,7 +110,7 @@ terminal:
       console.error("Failed to scan ports:", error);
     }
     setScanning(false);
-  }, [projects, updateStatus]);
+  }, [projects, updateStatusApi]);
 
   // Scan on initial load
   useEffect(() => {
@@ -389,7 +389,7 @@ terminal:
                     {sortedProjects.map((project) => {
                       const isRunning = systemPorts.some((p) => p.port === project.port);
                       return (
-                        <TableRow key={project._id}>
+                        <TableRow key={project.id}>
                           <TableCell>
                             <code className="text-lg font-mono font-bold">
                               {project.port}

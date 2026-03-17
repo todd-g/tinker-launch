@@ -23,10 +23,9 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Textarea } from "@/components/ui/textarea";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "../../../convex/_generated/api";
+import { useDbQuery, useDbMutation } from "@/hooks/use-db";
 import { useState, useEffect } from "react";
-import { Save, RotateCcw, Key, ChevronRight, FolderSearch } from "lucide-react";
+import { Save, RotateCcw, Key, ChevronRight, FolderSearch, Folders, Building2 } from "lucide-react";
 import Link from "next/link";
 
 const DEFAULT_TECH_STACK = `# Tech Stack
@@ -88,8 +87,9 @@ npx convex deploy
 `;
 
 export default function SettingsPage() {
-  const settings = useQuery(api.settings.getAll, {});
-  const setSetting = useMutation(api.settings.set);
+  const { data: settingsData } = useDbQuery<{ success: boolean; settings: Record<string, unknown> }>("/api/db/settings");
+  const settings = settingsData?.settings;
+  const { mutate: setSettingApi } = useDbMutation("/api/db/settings");
 
   const [techStack, setTechStack] = useState(DEFAULT_TECH_STACK);
   const [claudeTemplate, setClaudeTemplate] = useState(DEFAULT_CLAUDE_TEMPLATE);
@@ -109,8 +109,8 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    await setSetting({ key: "techStackTemplate", value: techStack });
-    await setSetting({ key: "claudeTemplate", value: claudeTemplate });
+    await setSettingApi({ key: "techStackTemplate", value: techStack });
+    await setSettingApi({ key: "claudeTemplate", value: claudeTemplate });
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -149,6 +149,50 @@ export default function SettingsPage() {
           </Button>
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+          {/* Projects Link Card */}
+          <Link href="/settings/projects">
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-primary/10 p-2 rounded-lg">
+                      <Folders className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-base">Projects</CardTitle>
+                      <CardDescription>
+                        Edit URLs, aliases, Linear slugs, and archive projects
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </div>
+              </CardHeader>
+            </Card>
+          </Link>
+
+          {/* Orgs Link Card */}
+          <Link href="/settings/orgs">
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-primary/10 p-2 rounded-lg">
+                      <Building2 className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-base">Orgs</CardTitle>
+                      <CardDescription>
+                        Display names, Slack workspace, and Chrome profile mappings per org
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </div>
+              </CardHeader>
+            </Card>
+          </Link>
+
           {/* Credentials Link Card */}
           <Link href="/settings/credentials">
             <Card className="cursor-pointer hover:bg-muted/50 transition-colors">

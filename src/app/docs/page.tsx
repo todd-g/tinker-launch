@@ -107,6 +107,7 @@ export default function DocsPage() {
                 <li><a href="#credentials" className="hover:text-foreground hover:underline">Credentials System</a></li>
                 <li><a href="#port-scanner" className="hover:text-foreground hover:underline">Port Scanner</a></li>
                 <li><a href="#importing-projects" className="hover:text-foreground hover:underline">Importing Existing Projects</a></li>
+                <li><a href="#activity-tracking" className="hover:text-foreground hover:underline">Activity Tracking</a></li>
               </ul>
             </nav>
 
@@ -120,13 +121,12 @@ export default function DocsPage() {
               <ul className="list-disc space-y-1 pl-6 text-[0.9375rem] text-muted-foreground">
                 <li>Node.js (latest LTS)</li>
                 <li>GitHub CLI &mdash; <InlineCode>gh</InlineCode> (used for repo creation)</li>
-                <li>A Convex account (<a href="https://convex.dev" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">convex.dev</a>)</li>
+                <li>Python 3 (for optional window tracking daemon)</li>
               </ul>
 
               <h3 className="text-lg font-medium">Setup</h3>
               <CodeBlock>{`git clone <repo-url> && cd tinker-launch
 npm install
-npx convex dev          # Start Convex backend (runs in foreground)
 npm run dev             # Start Next.js on port 3001`}</CodeBlock>
 
               <p className="text-[0.9375rem] text-muted-foreground">
@@ -182,8 +182,7 @@ npm run dev             # Start Next.js on port 3001`}</CodeBlock>
                 </p>
                 <CodeBlock>{`node --version        # Need Node.js LTS
 gh --version          # Need GitHub CLI
-gh auth status        # Need authenticated GitHub session
-npx convex --version  # Need Convex CLI (comes with npm install)`}</CodeBlock>
+gh auth status        # Need authenticated GitHub session`}</CodeBlock>
                 <Callout variant="agent">
                   <p><strong>If Node.js is missing:</strong> Tell the user to install it from nodejs.org or via <InlineCode>brew install node</InlineCode>.</p>
                   <p className="mt-1"><strong>If <InlineCode>gh</InlineCode> is missing:</strong> Run <InlineCode>brew install gh</InlineCode>, then <InlineCode>gh auth login</InlineCode> and walk the user through the browser auth flow.</p>
@@ -200,20 +199,11 @@ npm install`}</CodeBlock>
 
               {/* Step 3 */}
               <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
-                <h3 className="text-lg font-medium">Step 3: Set up Convex</h3>
+                <h3 className="text-lg font-medium">Step 3: Verify the database</h3>
                 <p className="text-[0.9375rem] text-muted-foreground">
-                  Run <InlineCode>npx convex dev</InlineCode>. This is interactive and requires
-                  the user to log in via browser. Tell the user:
-                </p>
-                <Callout variant="agent">
-                  <p>&quot;I&apos;m going to start the Convex backend. A browser window will open
-                  for you to log into Convex (create a free account if you don&apos;t have one).
-                  Once you&apos;re logged in, come back here and it will finish setting up.&quot;</p>
-                </Callout>
-                <p className="text-[0.9375rem] text-muted-foreground">
-                  After login, Convex will create <InlineCode>.env.local</InlineCode> with
-                  the <InlineCode>NEXT_PUBLIC_CONVEX_URL</InlineCode> automatically.
-                  Leave this process running in a separate terminal &mdash; it&apos;s the dev backend.
+                  Tinker Launch uses a local SQLite database at <InlineCode>~/.tinker-launch/tinker.db</InlineCode>.
+                  It auto-creates on first run &mdash; no setup needed. Start the dev server and
+                  visit the dashboard to confirm everything loads.
                 </p>
               </div>
 
@@ -708,7 +698,7 @@ terminal:
                 <li>Uses <InlineCode>lsof</InlineCode> to find the process and its PID.</li>
                 <li>Reads the process working directory.</li>
                 <li>Looks for a <InlineCode>.tinker.yaml</InlineCode> in that directory to get the project name, org, repo, and terminal colors.</li>
-                <li>Falls back to the Convex port registry (projects created through the dashboard) if no config file is found.</li>
+                <li>Falls back to the SQLite port registry (projects created through the dashboard) if no config file is found.</li>
                 <li>Searches for a favicon file to display alongside the project name.</li>
               </ol>
               <p className="text-[0.9375rem] text-muted-foreground">
@@ -781,6 +771,87 @@ terminal:
                 Tinker Launch then generates <InlineCode>.envrc</InlineCode> and <InlineCode>cli.sh</InlineCode> for
                 each project, just like it does for newly created ones.
               </p>
+            </section>
+
+            <Separator />
+
+            {/* ── Activity Tracking ── */}
+            <section id="activity-tracking" className="space-y-4 scroll-mt-20">
+              <h2 className="text-2xl font-semibold tracking-tight">Activity Tracking</h2>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                Tinker Launch includes a passive activity tracking system that attributes
+                your time across projects by monitoring which windows are focused. It also
+                parses Claude Code transcripts for token usage data.
+              </p>
+
+              <h3 className="text-lg font-medium">What data is collected</h3>
+              <ul className="list-disc space-y-1 pl-6 text-[0.9375rem] text-muted-foreground">
+                <li><strong>Window focus</strong> &mdash; Every 10 seconds, the daemon records which app and window is frontmost (app name, window title, bundle ID).</li>
+                <li><strong>Claude Code transcripts</strong> &mdash; Token counts, message counts, and session duration are parsed from local <InlineCode>~/.claude/projects/</InlineCode> session files.</li>
+              </ul>
+
+              <h3 className="text-lg font-medium">Privacy</h3>
+              <Callout variant="info">
+                <ul className="list-disc pl-5 space-y-0.5">
+                  <li><strong>Chrome Incognito windows are excluded</strong> &mdash; the daemon filters out any window with &quot;(Incognito)&quot; or &quot;(Private)&quot; in the title.</li>
+                  <li>All data stays local in <InlineCode>~/.tinker-launch/activity/</InlineCode> and the SQLite database at <InlineCode>~/.tinker-launch/tinker.db</InlineCode>.</li>
+                  <li>Shell command history is never tracked.</li>
+                  <li>No data is sent to external services.</li>
+                </ul>
+              </Callout>
+
+              <h3 className="text-lg font-medium">How it works</h3>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                A macOS LaunchAgent (<InlineCode>com.tinker-launch.window-tracker</InlineCode>) runs
+                automatically in the background, polling the frontmost window every 10 seconds and
+                writing JSONL data to <InlineCode>~/.tinker-launch/activity/window-focus.jsonl</InlineCode>.
+                The daemon auto-installs the first time you visit the Activity page.
+              </p>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                When the Activity page loads, ingestion and Claude Code transcript parsing run
+                automatically &mdash; no manual steps needed. Data is matched to registered projects
+                and aggregated into daily summaries in SQLite.
+              </p>
+
+              <h3 className="text-lg font-medium">How project matching works</h3>
+              <div className="overflow-x-auto rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="px-4 py-2.5 text-left font-medium">App Type</th>
+                      <th className="px-4 py-2.5 text-left font-medium">Matching Strategy</th>
+                      <th className="px-4 py-2.5 text-left font-medium">Activity Type</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-muted-foreground">
+                    <tr className="border-b">
+                      <td className="px-4 py-2.5">Terminal, iTerm2, Warp, Ghostty</td>
+                      <td className="px-4 py-2.5">Parse directory from window title → match project <InlineCode>localPath</InlineCode></td>
+                      <td className="px-4 py-2.5">Coding</td>
+                    </tr>
+                    <tr className="border-b">
+                      <td className="px-4 py-2.5">VS Code, Cursor</td>
+                      <td className="px-4 py-2.5">Match folder name in window title → project <InlineCode>repoName</InlineCode></td>
+                      <td className="px-4 py-2.5">Coding</td>
+                    </tr>
+                    <tr className="border-b">
+                      <td className="px-4 py-2.5">Browser on localhost</td>
+                      <td className="px-4 py-2.5">Extract port number → match project port</td>
+                      <td className="px-4 py-2.5">Browser (Local)</td>
+                    </tr>
+                    <tr className="border-b">
+                      <td className="px-4 py-2.5">Browser on *.vercel.app</td>
+                      <td className="px-4 py-2.5">Match repo name in URL</td>
+                      <td className="px-4 py-2.5">Browser (Staging)</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2.5">Xcode</td>
+                      <td className="px-4 py-2.5">Parse project name from window title</td>
+                      <td className="px-4 py-2.5">Xcode</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </section>
           </article>
         </div>

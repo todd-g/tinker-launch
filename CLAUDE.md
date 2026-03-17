@@ -5,22 +5,21 @@ A local project dashboard for rapid scaffolding and management of new projects. 
 ## Tech Stack
 - Next.js (latest stable, App Router)
 - Tailwind CSS 4 with shadcn/ui (sidebar-08 variant)
-- Convex for database/backend
+- SQLite via better-sqlite3 (local database at `~/.tinker-launch/tinker.db`)
 - Vercel for hosting
-- Use Vercel CLI and Convex CLI for all deployments
+- Use Vercel CLI for deployments
 
 ## Development
 - Run `npm run dev` for Next.js dev server (port 3001 - reserved for this dashboard)
-- Run `npx convex dev` for Convex in development mode
+- SQLite database auto-creates on first run — no setup needed
 
 ## Deployments & Credentials
 
-This project uses credential files managed by Tinker Launch. The `.envrc` file contains environment variables for Vercel and Convex authentication.
+This project uses credential files managed by Tinker Launch. The `.envrc` file contains environment variables for Vercel authentication. Credentials are stored in `~/.tinker-launch/credentials.yaml`.
 
 **Using cli.sh (recommended for agents):**
 ```bash
 ./cli.sh vercel              # Deploy to Vercel
-./cli.sh npx convex deploy   # Deploy Convex functions
 ./cli.sh vercel whoami       # Check which Vercel account is active
 ```
 
@@ -28,7 +27,6 @@ This project uses credential files managed by Tinker Launch. The `.envrc` file c
 The credentials auto-load when you `cd` into this directory. You can then run commands directly:
 ```bash
 vercel
-npx convex deploy
 ```
 
 **Important:** Never commit `.envrc` - it contains sensitive tokens and is gitignored.
@@ -36,12 +34,12 @@ npx convex deploy
 ## Other Commands
 - `gh` - GitHub CLI for repo creation
 
-## Project Structure (Planned)
+## Project Structure
 ```
 /app              - Next.js App Router pages
 /components       - React components (shadcn/ui)
-/convex           - Convex schema and functions
-/lib              - Utilities (port registry, GitHub integration)
+/lib              - Utilities (port registry, GitHub integration, SQLite DB, activity tracking)
+/scripts          - Window tracking daemon and LaunchAgent plist
 /templates        - Default files for new projects
 ```
 
@@ -79,6 +77,7 @@ This ensures we always have a clear trail of what was built, why, and what chang
 When committing, use the correct email based on the GitHub org:
 - **Personal** (toddgalloway): `toddgalloway@gmail.com`
 - **minimagroup**: `todd@minima.nyc`
+- **Super-Green**: `todd@super.green`
 
 Set the author on commits accordingly (e.g., `git commit --author="Todd Galloway <todd@minima.nyc>"`).
 

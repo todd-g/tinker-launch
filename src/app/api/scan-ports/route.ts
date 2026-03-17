@@ -4,6 +4,7 @@ import { promisify } from "util";
 import { readFile, writeFile, readdir } from "fs/promises";
 import { existsSync, statSync } from "fs";
 import path from "path";
+import { findProjectFavicon } from "@/lib/favicon";
 import {
   parseColor,
   rgbToTerminalScale,
@@ -709,40 +710,7 @@ async function findBrandColorInCssPaths(baseDir: string, relPaths: string[]): Pr
   return null;
 }
 
-/**
- * Find favicon in a project directory
- */
-async function findProjectFavicon(projectDir: string): Promise<string | null> {
-  const faviconLocations = [
-    // Next.js / React
-    "public/favicon.ico",
-    "public/favicon.png",
-    "public/favicon.svg",
-    "app/favicon.ico",
-    "src/app/favicon.ico",
-    "app/icon.png",
-    "src/app/icon.png",
-    "app/icon.svg",
-    "src/app/icon.svg",
-    // Django / Python backends
-    "static/favicon.ico",
-    "backend/static/favicon.ico",
-    "backend/staticfiles/favicon.ico",
-    // Other common locations
-    "assets/favicon.ico",
-    "assets/images/favicon.ico",
-    "favicon.ico",
-  ];
-
-  for (const location of faviconLocations) {
-    const faviconPath = path.join(projectDir, location);
-    if (existsSync(faviconPath)) {
-      return faviconPath;
-    }
-  }
-
-  return null;
-}
+// findProjectFavicon is imported from @/lib/favicon
 
 /**
  * Update or create terminal colors in a project's .tinker.yaml
@@ -807,6 +775,15 @@ async function autoUpdateTinkerYaml(projectDir: string): Promise<TinkerConfig | 
         // Add terminal section to existing file
         const terminalSection = `\nterminal:\n  dark: "${terminalColors.dark}"\n  light: "${terminalColors.light}"\n`;
         await writeFile(yamlPath, existingContent.trimEnd() + terminalSection, "utf-8");
+      } else {
+        // No .tinker.yaml exists — create one with inferred name and colors
+        const dirName = path.basename(projectDir);
+        const inferredName = dirName
+          .replace(/[-_]/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+        const newContent = `name: ${inferredName}\nterminal:\n  dark: "${terminalColors.dark}"\n  light: "${terminalColors.light}"\n`;
+        await writeFile(yamlPath, newContent, "utf-8");
+        config.name = inferredName;
       }
 
       // Update config object

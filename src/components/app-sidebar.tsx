@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { BookOpen, FolderPlus, Folders, Network, Rocket, Settings } from "lucide-react";
+import { BookOpen, FolderPlus, Folders, Network, Rocket, Settings, Timer } from "lucide-react";
 
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
@@ -41,6 +41,25 @@ const staticNavMain = [
     ],
   },
   {
+    title: "Activity",
+    url: "/activity",
+    icon: Timer,
+    items: [
+      {
+        title: "Activity Log",
+        url: "/activity",
+      },
+      {
+        title: "Day Timeline",
+        url: "/activity/timeline",
+      },
+      {
+        title: "Claude Code",
+        url: "/activity/claude-code",
+      },
+    ],
+  },
+  {
     title: "Documentation",
     url: "/docs",
     icon: BookOpen,
@@ -57,12 +76,20 @@ const staticNavMain = [
     icon: Settings,
     items: [
       {
-        title: "Templates",
-        url: "/settings",
+        title: "Projects",
+        url: "/settings/projects",
+      },
+      {
+        title: "Orgs",
+        url: "/settings/orgs",
       },
       {
         title: "Credentials",
         url: "/settings/credentials",
+      },
+      {
+        title: "Templates",
+        url: "/settings",
       },
       {
         title: "Import Projects",

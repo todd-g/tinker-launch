@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { ConvexHttpClient } from "convex/browser";
-import { api } from "../../../../convex/_generated/api";
+import { projects as projectsDb } from "@/lib/db";
 import {
   readCredentials,
   writeCredentials,
@@ -146,21 +145,17 @@ export async function POST(request: Request) {
     if (body.setConvexKeys) {
       const repoName = body.setConvexKeys.repoName;
       try {
-        const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-        if (convexUrl) {
-          const convex = new ConvexHttpClient(convexUrl);
-          const project = await convex.query(api.projects.getByRepoName, { repoName });
-          if (project?.localPath && project?.org) {
-            const result = await regenerateEnvrcForProject(
-              credentials,
-              repoName,
-              project.localPath,
-              project.org
-            );
-            envrcSync.push({ repoName, ...result });
-          } else {
-            envrcSync.push({ repoName, regenerated: false, reason: "project not found in database" });
-          }
+        const project = projectsDb.getByRepoName(repoName);
+        if (project?.localPath && project?.org) {
+          const result = await regenerateEnvrcForProject(
+            credentials,
+            repoName,
+            project.localPath,
+            project.org
+          );
+          envrcSync.push({ repoName, ...result });
+        } else {
+          envrcSync.push({ repoName, regenerated: false, reason: "project not found in database" });
         }
       } catch (e) {
         console.error("Error during .envrc auto-sync for", repoName, e);

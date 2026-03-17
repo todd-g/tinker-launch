@@ -1,7 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
-import { api } from "../../convex/_generated/api";
+import { useDbQuery } from "@/hooks/use-db";
 import type { Project } from "@/types/project";
 import {
   Table,
@@ -17,8 +16,8 @@ import { ExternalLink, Github, Terminal, FolderOpen } from "lucide-react";
 import Link from "next/link";
 
 export function ProjectList({ orgFilter }: { orgFilter?: string }) {
-  const projectsData = useQuery(api.projects.list, { org: orgFilter });
-  const projects = projectsData as Project[] | undefined;
+  const { data } = useDbQuery<{ success: boolean; projects: Project[] }>("/api/db/projects", { org: orgFilter });
+  const projects = data?.projects;
 
   if (!projects) {
     return (
@@ -52,7 +51,7 @@ export function ProjectList({ orgFilter }: { orgFilter?: string }) {
       </TableHeader>
       <TableBody>
         {projects.map((project) => (
-          <TableRow key={project._id}>
+          <TableRow key={project.id}>
             <TableCell>
               <div className="flex flex-col">
                 <span className="font-medium">{project.projectName}</span>

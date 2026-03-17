@@ -34,8 +34,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "../../../convex/_generated/api";
+import { useDbQuery, useDbMutation } from "@/hooks/use-db";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Key, AlertCircle } from "lucide-react";
@@ -52,8 +51,9 @@ interface Credentials {
 
 export default function NewProjectPage() {
   const router = useRouter();
-  const createProject = useMutation(api.projects.create);
-  const nextPort = useQuery(api.projects.getNextPort);
+  const { mutate: createProjectApi } = useDbMutation("/api/db/projects");
+  const { data: nextPortData } = useDbQuery<{ success: boolean; port: number }>("/api/db/projects", { action: "nextPort" });
+  const nextPort = nextPortData?.port;
 
   const [repoName, setRepoName] = useState("");
   const [projectName, setProjectName] = useState("");
@@ -140,15 +140,18 @@ export default function NewProjectPage() {
         return;
       }
 
-      // Save to Convex
-      await createProject({
-        repoName,
-        projectName,
-        org: finalOrg,
-        description,
-        localPath: result.localPath,
-        githubUrl: result.githubUrl,
-        port: nextPort ?? 3001,
+      // Save to database
+      await createProjectApi({
+        action: "create",
+        data: {
+          repoName,
+          projectName,
+          org: finalOrg,
+          description,
+          localPath: result.localPath,
+          githubUrl: result.githubUrl,
+          port: nextPort ?? 3001,
+        },
       });
 
       // Generate credentials if enabled and account has Vercel token
