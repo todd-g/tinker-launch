@@ -109,7 +109,6 @@ export default function DocsPage() {
                 <li><a href="#importing-projects" className="hover:text-foreground hover:underline">Importing Existing Projects</a></li>
                 <li><a href="#activity-tracking" className="hover:text-foreground hover:underline">Activity Tracking</a></li>
                 <li><a href="#skills-registry" className="hover:text-foreground hover:underline">Skills Registry</a></li>
-                <li><a href="#message-analysis" className="hover:text-foreground hover:underline">Message Analysis</a></li>
                 <li><a href="#knowledge-base" className="hover:text-foreground hover:underline">Knowledge Base</a></li>
               </ul>
             </nav>
@@ -900,41 +899,6 @@ terminal:
                 <li>Use kebab-case names (e.g., <InlineCode>fix-bug</InlineCode>, <InlineCode>review-code</InlineCode>)</li>
                 <li>Avoid telling Claude things it already knows &mdash; focus on project-specific patterns</li>
               </ul>
-            </section>
-
-            <Separator />
-
-            {/* ── Message Analysis ── */}
-            <section id="message-analysis" className="space-y-4 scroll-mt-20">
-              <h2 className="text-2xl font-semibold tracking-tight">Message Analysis</h2>
-              <p className="text-[0.9375rem] text-muted-foreground">
-                Parses Claude Code JSONL conversation files from{" "}
-                <InlineCode>~/.claude/projects/</InlineCode> to surface usage patterns, tool stats,
-                and skill creation opportunities.
-              </p>
-
-              <h3 className="text-lg font-medium">Dashboard Tabs</h3>
-              <ul className="list-disc space-y-1 pl-6 text-[0.9375rem] text-muted-foreground">
-                <li><strong>Overview</strong> &mdash; total projects, sessions, messages, token usage. Project breakdown by session count</li>
-                <li><strong>Prompt Patterns</strong> &mdash; repeated prompts detected across conversations. High-count patterns (5+) are flagged as skill candidates</li>
-                <li><strong>Slash Commands</strong> &mdash; which <InlineCode>/commands</InlineCode> you use most across all projects</li>
-                <li><strong>Tool Usage</strong> &mdash; which tools Claude invokes most (Bash, Read, Edit, Grep, etc.) and across how many sessions</li>
-                <li><strong>Recent Sessions</strong> &mdash; latest Claude Code sessions with project, summary, message count, and git branch</li>
-              </ul>
-
-              <Callout variant="auto">
-                Analysis runs on demand when you visit the page. It scans the 100 most recent JSONL files
-                across all project directories. No data is stored &mdash; results are computed fresh each time.
-              </Callout>
-
-              <h3 className="text-lg font-medium">The Pattern &rarr; Skill Pipeline</h3>
-              <p className="text-[0.9375rem] text-muted-foreground">
-                The Prompt Patterns tab identifies things you ask Claude to do repeatedly. When a pattern
-                appears 5+ times across sessions, it&apos;s marked as a <strong>Skill candidate</strong>.
-                From there, you can create a skill in the Skills Registry that automates that workflow.
-                This creates a flywheel: work &rarr; patterns detected &rarr; skills created &rarr;
-                more efficient work.
-              </p>
             </section>
 
             <Separator />
