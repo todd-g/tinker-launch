@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { BookOpen, FolderPlus, Folders, Network, Rocket, Settings, Timer } from "lucide-react";
+import { BookOpen, Brain, FolderPlus, Folders, MessageSquare, Network, Rocket, Settings, Sparkles, Timer } from "lucide-react";
 
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
@@ -56,6 +56,43 @@ const staticNavMain = [
       {
         title: "Claude Code",
         url: "/activity/claude-code",
+      },
+    ],
+  },
+  {
+    title: "Skills",
+    url: "/skills",
+    icon: Sparkles,
+    items: [
+      {
+        title: "Registry",
+        url: "/skills",
+      },
+      {
+        title: "New Skill",
+        url: "/skills/new",
+      },
+    ],
+  },
+  {
+    title: "Messages",
+    url: "/messages",
+    icon: MessageSquare,
+    items: [
+      {
+        title: "Analysis",
+        url: "/messages",
+      },
+    ],
+  },
+  {
+    title: "Knowledge Base",
+    url: "/knowledge-base",
+    icon: Brain,
+    items: [
+      {
+        title: "Browse",
+        url: "/knowledge-base",
       },
     ],
   },

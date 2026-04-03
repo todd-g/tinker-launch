@@ -145,6 +145,22 @@ function initSchema(db: Database.Database) {
     );
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS knowledgeBase (
+      id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+      type TEXT NOT NULL CHECK(type IN ('decision', 'pattern', 'learning')),
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      tags TEXT NOT NULL DEFAULT '',
+      projectId TEXT,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_kb_type ON knowledgeBase(type);
+    CREATE INDEX IF NOT EXISTS idx_kb_project ON knowledgeBase(projectId);
+  `);
+
   // Migrations — add columns that may not exist yet
   const migrations = [
     "ALTER TABLE projects ADD COLUMN prodUrl TEXT NOT NULL DEFAULT ''",
@@ -172,6 +188,13 @@ function initSchema(db: Database.Database) {
     "UPDATE activitySnapshots SET reportable = 0 WHERE source = 'window_tracker' AND activityType = 'coding'",
     // Archive support
     "ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+    // Webflow project support
+    "ALTER TABLE projects ADD COLUMN webflowSlug TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE activityDaily ADD COLUMN browserWebflowMinutes REAL NOT NULL DEFAULT 0",
+    // Automated session detection (e.g. /loop)
+    "ALTER TABLE ccSessionStats ADD COLUMN isAutomated INTEGER NOT NULL DEFAULT 0",
+    // Backfill: mark CC turns from automated sessions as non-reportable
+    "UPDATE activitySnapshots SET reportable = 0 WHERE source = 'cc_transcript' AND ccSessionId IN (SELECT sessionId FROM ccSessionStats WHERE isAutomated = 1)",
   ];
   for (const sql of migrations) {
     try { db.exec(sql); } catch { /* column already exists */ }
@@ -198,6 +221,7 @@ export interface DbProject {
   stagingUrl: string;
   aliases: string; // comma-separated alternative names for matching
   linearSlug: string; // Linear workspace slug for matching linear.app/{slug}/...
+  webflowSlug: string; // Webflow site slug for matching {slug}.design.webflow.com etc.
   archived: number; // 0 = active, 1 = archived
 }
 
@@ -275,7 +299,7 @@ export const projects = {
     db.prepare("UPDATE projects SET archived = ? WHERE id = ?").run(archived ? 1 : 0, id);
   },
 
-  update(id: string, fields: Partial<Pick<DbProject, "projectName" | "description" | "prodUrl" | "stagingUrl" | "aliases" | "linearSlug" | "org" | "port" | "localPath" | "githubUrl">>): void {
+  update(id: string, fields: Partial<Pick<DbProject, "projectName" | "description" | "prodUrl" | "stagingUrl" | "aliases" | "linearSlug" | "webflowSlug" | "org" | "port" | "localPath" | "githubUrl">>): void {
     const db = getDb();
     const entries = Object.entries(fields).filter(([, v]) => v !== undefined);
     if (entries.length === 0) return;
@@ -460,7 +484,7 @@ export const activitySnapshots = {
 
   listUnmatched(): DbSnapshot[] {
     const db = getDb();
-    return db.prepare("SELECT * FROM activitySnapshots WHERE projectId IS NULL ORDER BY timestamp DESC").all() as DbSnapshot[];
+    return db.prepare("SELECT * FROM activitySnapshots WHERE (projectId IS NULL OR projectId = '') ORDER BY timestamp DESC").all() as DbSnapshot[];
   },
 
   updateMatch(id: number, projectId: string, projectName: string, activityType: string): void {
@@ -499,6 +523,7 @@ export interface DbActivityDaily {
   browserLocalMinutes: number;
   browserStagingMinutes: number;
   browserProdMinutes: number;
+  browserWebflowMinutes: number;
   xcodeMinutes: number;
   slackMinutes: number;
   totalMinutes: number;
@@ -508,17 +533,18 @@ export const activityDaily = {
   upsert(data: Omit<DbActivityDaily, "id">): void {
     const db = getDb();
     db.prepare(`
-      INSERT INTO activityDaily (projectId, date, codingMinutes, browserLocalMinutes, browserStagingMinutes, browserProdMinutes, xcodeMinutes, slackMinutes, totalMinutes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO activityDaily (projectId, date, codingMinutes, browserLocalMinutes, browserStagingMinutes, browserProdMinutes, browserWebflowMinutes, xcodeMinutes, slackMinutes, totalMinutes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(projectId, date) DO UPDATE SET
         codingMinutes = codingMinutes + excluded.codingMinutes,
         browserLocalMinutes = browserLocalMinutes + excluded.browserLocalMinutes,
         browserStagingMinutes = browserStagingMinutes + excluded.browserStagingMinutes,
         browserProdMinutes = browserProdMinutes + excluded.browserProdMinutes,
+        browserWebflowMinutes = browserWebflowMinutes + excluded.browserWebflowMinutes,
         xcodeMinutes = xcodeMinutes + excluded.xcodeMinutes,
         slackMinutes = slackMinutes + excluded.slackMinutes,
         totalMinutes = totalMinutes + excluded.totalMinutes
-    `).run(data.projectId, data.date, data.codingMinutes, data.browserLocalMinutes, data.browserStagingMinutes, data.browserProdMinutes, data.xcodeMinutes, data.slackMinutes, data.totalMinutes);
+    `).run(data.projectId, data.date, data.codingMinutes, data.browserLocalMinutes, data.browserStagingMinutes, data.browserProdMinutes, data.browserWebflowMinutes, data.xcodeMinutes, data.slackMinutes, data.totalMinutes);
   },
 
   list(opts?: { projectId?: string; startDate?: string; endDate?: string }): DbActivityDaily[] {
@@ -648,14 +674,15 @@ export interface DbCCSessionStats {
   humanMessageCount: number;
   assistantMessageCount: number;
   claudeMinutes: number;
+  isAutomated?: boolean;
 }
 
 export const ccSessionStats = {
   upsert(data: DbCCSessionStats): void {
     const db = getDb();
     db.prepare(`
-      INSERT INTO ccSessionStats (sessionId, projectId, date, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, humanMessageCount, assistantMessageCount, claudeMinutes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO ccSessionStats (sessionId, projectId, date, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, humanMessageCount, assistantMessageCount, claudeMinutes, isAutomated)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(sessionId) DO UPDATE SET
         projectId = excluded.projectId,
         date = excluded.date,
@@ -665,8 +692,9 @@ export const ccSessionStats = {
         cacheReadTokens = excluded.cacheReadTokens,
         humanMessageCount = excluded.humanMessageCount,
         assistantMessageCount = excluded.assistantMessageCount,
-        claudeMinutes = excluded.claudeMinutes
-    `).run(data.sessionId, data.projectId, data.date, data.inputTokens, data.outputTokens, data.cacheCreationTokens, data.cacheReadTokens, data.humanMessageCount, data.assistantMessageCount, data.claudeMinutes);
+        claudeMinutes = excluded.claudeMinutes,
+        isAutomated = excluded.isAutomated
+    `).run(data.sessionId, data.projectId, data.date, data.inputTokens, data.outputTokens, data.cacheCreationTokens, data.cacheReadTokens, data.humanMessageCount, data.assistantMessageCount, data.claudeMinutes, data.isAutomated ? 1 : 0);
   },
 
   clear(): void {
@@ -819,5 +847,75 @@ export const orgSettings = {
   remove(org: string): void {
     const db = getDb();
     db.prepare("DELETE FROM orgSettings WHERE org = ?").run(org);
+  },
+};
+
+// ──────────────────────────────────────────────
+// Knowledge Base
+// ──────────────────────────────────────────────
+
+export interface DbKBEntry {
+  id: string;
+  type: "decision" | "pattern" | "learning";
+  title: string;
+  content: string;
+  tags: string; // comma-separated
+  projectId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export const knowledgeBase = {
+  list(opts?: { type?: string; projectId?: string; search?: string }): DbKBEntry[] {
+    const db = getDb();
+    let sql = "SELECT * FROM knowledgeBase WHERE 1=1";
+    const params: unknown[] = [];
+
+    if (opts?.type) {
+      sql += " AND type = ?";
+      params.push(opts.type);
+    }
+    if (opts?.projectId) {
+      sql += " AND projectId = ?";
+      params.push(opts.projectId);
+    }
+    if (opts?.search) {
+      sql += " AND (title LIKE ? OR content LIKE ? OR tags LIKE ?)";
+      const q = `%${opts.search}%`;
+      params.push(q, q, q);
+    }
+
+    sql += " ORDER BY updatedAt DESC";
+    return db.prepare(sql).all(...params) as DbKBEntry[];
+  },
+
+  get(id: string): DbKBEntry | undefined {
+    const db = getDb();
+    return db.prepare("SELECT * FROM knowledgeBase WHERE id = ?").get(id) as DbKBEntry | undefined;
+  },
+
+  create(data: { type: string; title: string; content: string; tags?: string; projectId?: string }): string {
+    const db = getDb();
+    const id = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("hex");
+    const now = Date.now();
+    db.prepare(`
+      INSERT INTO knowledgeBase (id, type, title, content, tags, projectId, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, data.type, data.title, data.content, data.tags || "", data.projectId || null, now, now);
+    return id;
+  },
+
+  update(id: string, data: Partial<Pick<DbKBEntry, "type" | "title" | "content" | "tags" | "projectId">>): void {
+    const db = getDb();
+    const entries = Object.entries(data).filter(([, v]) => v !== undefined);
+    if (entries.length === 0) return;
+    const setClauses = [...entries.map(([k]) => `${k} = ?`), "updatedAt = ?"].join(", ");
+    const values = [...entries.map(([, v]) => v), Date.now()];
+    db.prepare(`UPDATE knowledgeBase SET ${setClauses} WHERE id = ?`).run(...values, id);
+  },
+
+  remove(id: string): void {
+    const db = getDb();
+    db.prepare("DELETE FROM knowledgeBase WHERE id = ?").run(id);
   },
 };
