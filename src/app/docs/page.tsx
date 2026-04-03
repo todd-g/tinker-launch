@@ -108,6 +108,9 @@ export default function DocsPage() {
                 <li><a href="#port-scanner" className="hover:text-foreground hover:underline">Port Scanner</a></li>
                 <li><a href="#importing-projects" className="hover:text-foreground hover:underline">Importing Existing Projects</a></li>
                 <li><a href="#activity-tracking" className="hover:text-foreground hover:underline">Activity Tracking</a></li>
+                <li><a href="#skills-registry" className="hover:text-foreground hover:underline">Skills Registry</a></li>
+                <li><a href="#message-analysis" className="hover:text-foreground hover:underline">Message Analysis</a></li>
+                <li><a href="#knowledge-base" className="hover:text-foreground hover:underline">Knowledge Base</a></li>
               </ul>
             </nav>
 
@@ -852,6 +855,142 @@ terminal:
                   </tbody>
                 </table>
               </div>
+            </section>
+
+            <Separator />
+
+            {/* ── Skills Registry ── */}
+            <section id="skills-registry" className="space-y-4 scroll-mt-20">
+              <h2 className="text-2xl font-semibold tracking-tight">Skills Registry</h2>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                The Skills Registry discovers and manages Claude Code skills and commands across all
+                your projects. It scans <InlineCode>~/.claude/skills/</InlineCode>,{" "}
+                <InlineCode>~/.claude/commands/</InlineCode>, and every tracked project&apos;s{" "}
+                <InlineCode>.claude/</InlineCode> directory.
+              </p>
+
+              <h3 className="text-lg font-medium">Skills vs Commands</h3>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                Skills (<InlineCode>.claude/skills/foo/SKILL.md</InlineCode>) are an{" "}
+                <strong>open standard</strong> supported by 11+ tools (Claude Code, Codex, Cursor,
+                Windsurf, Gemini CLI, and more). Commands (<InlineCode>.claude/commands/foo.md</InlineCode>)
+                are Claude Code-specific and on the deprecation track. Skills are a strict superset &mdash;
+                they support everything commands do, plus supporting files, invocation control, subagent
+                execution, dynamic context injection, and tool restrictions.
+              </p>
+
+              <Callout variant="tip">
+                Always create new skills, not commands. Use the <strong>Migrate to Skill</strong> button
+                in the registry to convert existing commands to the portable skill format.
+              </Callout>
+
+              <h3 className="text-lg font-medium">Features</h3>
+              <ul className="list-disc space-y-1 pl-6 text-[0.9375rem] text-muted-foreground">
+                <li><strong>Browse</strong> &mdash; table with search, scope filters (personal/project), type filters (skill/command)</li>
+                <li><strong>View/Edit</strong> &mdash; read skill content and frontmatter, edit in-place with full frontmatter form</li>
+                <li><strong>Create</strong> &mdash; form-based skill creator with scope/type/project selection, name validation, advanced frontmatter options, and a live file preview</li>
+                <li><strong>Migrate</strong> &mdash; one-click conversion from command to skill format. Auto-detects action commands (deploy, push, commit) and adds <InlineCode>disable-model-invocation: true</InlineCode>. Supports bulk migration</li>
+              </ul>
+
+              <h3 className="text-lg font-medium">Skill Best Practices</h3>
+              <ul className="list-disc space-y-1 pl-6 text-[0.9375rem] text-muted-foreground">
+                <li>Keep <InlineCode>SKILL.md</InlineCode> under 500 lines &mdash; use supporting files for reference material</li>
+                <li>Always include a <InlineCode>description</InlineCode> &mdash; Claude uses it for auto-invocation (truncated at 250 chars)</li>
+                <li>Set <InlineCode>disable-model-invocation: true</InlineCode> for anything with side effects</li>
+                <li>Use kebab-case names (e.g., <InlineCode>fix-bug</InlineCode>, <InlineCode>review-code</InlineCode>)</li>
+                <li>Avoid telling Claude things it already knows &mdash; focus on project-specific patterns</li>
+              </ul>
+            </section>
+
+            <Separator />
+
+            {/* ── Message Analysis ── */}
+            <section id="message-analysis" className="space-y-4 scroll-mt-20">
+              <h2 className="text-2xl font-semibold tracking-tight">Message Analysis</h2>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                Parses Claude Code JSONL conversation files from{" "}
+                <InlineCode>~/.claude/projects/</InlineCode> to surface usage patterns, tool stats,
+                and skill creation opportunities.
+              </p>
+
+              <h3 className="text-lg font-medium">Dashboard Tabs</h3>
+              <ul className="list-disc space-y-1 pl-6 text-[0.9375rem] text-muted-foreground">
+                <li><strong>Overview</strong> &mdash; total projects, sessions, messages, token usage. Project breakdown by session count</li>
+                <li><strong>Prompt Patterns</strong> &mdash; repeated prompts detected across conversations. High-count patterns (5+) are flagged as skill candidates</li>
+                <li><strong>Slash Commands</strong> &mdash; which <InlineCode>/commands</InlineCode> you use most across all projects</li>
+                <li><strong>Tool Usage</strong> &mdash; which tools Claude invokes most (Bash, Read, Edit, Grep, etc.) and across how many sessions</li>
+                <li><strong>Recent Sessions</strong> &mdash; latest Claude Code sessions with project, summary, message count, and git branch</li>
+              </ul>
+
+              <Callout variant="auto">
+                Analysis runs on demand when you visit the page. It scans the 100 most recent JSONL files
+                across all project directories. No data is stored &mdash; results are computed fresh each time.
+              </Callout>
+
+              <h3 className="text-lg font-medium">The Pattern &rarr; Skill Pipeline</h3>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                The Prompt Patterns tab identifies things you ask Claude to do repeatedly. When a pattern
+                appears 5+ times across sessions, it&apos;s marked as a <strong>Skill candidate</strong>.
+                From there, you can create a skill in the Skills Registry that automates that workflow.
+                This creates a flywheel: work &rarr; patterns detected &rarr; skills created &rarr;
+                more efficient work.
+              </p>
+            </section>
+
+            <Separator />
+
+            {/* ── Knowledge Base ── */}
+            <section id="knowledge-base" className="space-y-4 scroll-mt-20">
+              <h2 className="text-2xl font-semibold tracking-tight">Knowledge Base</h2>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                A structured, searchable knowledge layer for capturing decisions, patterns, and
+                learnings across all your projects. Stored in SQLite alongside other Tinker data.
+              </p>
+
+              <h3 className="text-lg font-medium">Entry Types</h3>
+              <div className="overflow-x-auto rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="px-4 py-2.5 text-left font-medium">Type</th>
+                      <th className="px-4 py-2.5 text-left font-medium">Use For</th>
+                      <th className="px-4 py-2.5 text-left font-medium">Example</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-muted-foreground">
+                    <tr className="border-b">
+                      <td className="px-4 py-2.5 font-medium">Decision</td>
+                      <td className="px-4 py-2.5">&ldquo;We chose X over Y because Z&rdquo;</td>
+                      <td className="px-4 py-2.5">Use Linear GraphQL API directly instead of Linear MCP &mdash; supports multiple workspaces</td>
+                    </tr>
+                    <tr className="border-b">
+                      <td className="px-4 py-2.5 font-medium">Pattern</td>
+                      <td className="px-4 py-2.5">&ldquo;This is how we do X&rdquo;</td>
+                      <td className="px-4 py-2.5">Agent creation: skill file + subagent type + allowed-tools restriction</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2.5 font-medium">Learning</td>
+                      <td className="px-4 py-2.5">&ldquo;We tried X and discovered Y&rdquo;</td>
+                      <td className="px-4 py-2.5">CC session file fullPath doesn&apos;t match actual disk location</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <h3 className="text-lg font-medium">Features</h3>
+              <ul className="list-disc space-y-1 pl-6 text-[0.9375rem] text-muted-foreground">
+                <li>Search across titles, content, and tags</li>
+                <li>Filter by type (decision/pattern/learning)</li>
+                <li>Associate entries with specific projects or keep them cross-project</li>
+                <li>Tag entries for organization (comma-separated)</li>
+                <li>Card-based browse view with type-colored icons</li>
+              </ul>
+
+              <Callout variant="info">
+                Patterns in the Knowledge Base are proto-skills. When a pattern matures enough (&ldquo;this
+                is exactly how we always do X&rdquo;), it can graduate into a skill in the Skills Registry.
+                The KB entry becomes the skill&apos;s documentation.
+              </Callout>
             </section>
           </article>
         </div>
