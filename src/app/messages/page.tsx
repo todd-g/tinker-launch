@@ -280,71 +280,67 @@ export default function MessagesPage() {
                       No repeated patterns detected yet. Keep using Claude Code!
                     </p>
                   ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Pattern</TableHead>
-                          <TableHead>Count</TableHead>
-                          <TableHead>Projects</TableHead>
-                          <TableHead>Last Used</TableHead>
-                          <TableHead>Action</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {analysis.promptPatterns.slice(0, 30).map((p, i) => (
-                          <TableRow key={i}>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <span className="text-sm font-medium">
+                    <div className="grid gap-3">
+                      {analysis.promptPatterns.slice(0, 30).map((p, i) => (
+                        <Card key={i} className="overflow-hidden">
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1 space-y-2">
+                                <p className="text-sm font-medium break-words">
                                   {p.examples[0]}
-                                </span>
+                                </p>
                                 {p.examples.length > 1 && (
-                                  <div className="text-xs text-muted-foreground">
-                                    also: {p.examples.slice(1).join(", ")}
-                                  </div>
+                                  <p className="text-xs text-muted-foreground break-words">
+                                    also:{" "}
+                                    {p.examples
+                                      .slice(1)
+                                      .map((ex) =>
+                                        ex.length > 60
+                                          ? ex.slice(0, 60) + "..."
+                                          : ex
+                                      )
+                                      .join(", ")}
+                                  </p>
+                                )}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {p.projects.map((proj) => (
+                                    <Badge
+                                      key={proj}
+                                      variant="outline"
+                                      className="text-[10px]"
+                                    >
+                                      {proj}
+                                    </Badge>
+                                  ))}
+                                  <span className="text-[10px] text-muted-foreground">
+                                    Last: {formatDate(p.lastUsed)}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex flex-col items-end gap-1.5 shrink-0">
+                                <Badge
+                                  variant={
+                                    p.count >= 5 ? "default" : "secondary"
+                                  }
+                                  className="tabular-nums"
+                                >
+                                  {p.count}x
+                                </Badge>
+                                {p.count >= 5 && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] gap-1"
+                                  >
+                                    <Sparkles className="h-3 w-3" />
+                                    Skill candidate
+                                  </Badge>
                                 )}
                               </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  p.count >= 5 ? "default" : "secondary"
-                                }
-                              >
-                                {p.count}x
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1">
-                                {p.projects.map((proj) => (
-                                  <Badge
-                                    key={proj}
-                                    variant="outline"
-                                    className="text-[10px]"
-                                  >
-                                    {proj}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
-                              {formatDate(p.lastUsed)}
-                            </TableCell>
-                            <TableCell>
-                              {p.count >= 5 && (
-                                <Badge
-                                  variant="outline"
-                                  className="text-[10px] gap-1"
-                                >
-                                  <Sparkles className="h-3 w-3" />
-                                  Skill candidate
-                                </Badge>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
                   )}
                 </div>
               )}
