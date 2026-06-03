@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "update") {
-      const allowed = ["projectName", "description", "prodUrl", "stagingUrl", "aliases", "linearSlug", "org", "port", "localPath", "githubUrl"] as const;
+      const allowed = ["projectName", "description", "prodUrl", "stagingUrl", "aliases", "linearSlug", "webflowSlug", "neonOrgSlug", "org", "port", "localPath", "githubUrl"] as const;
       const fields: Record<string, unknown> = {};
       for (const key of allowed) {
         if (body[key] !== undefined) fields[key] = body[key];

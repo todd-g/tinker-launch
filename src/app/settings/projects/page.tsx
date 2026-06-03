@@ -35,7 +35,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useDbQuery } from "@/hooks/use-db";
 import type { DbProject } from "@/lib/db";
 import {
@@ -44,6 +44,7 @@ import {
   ExternalLink,
   Loader2,
   Pencil,
+  Search,
 } from "lucide-react";
 
 type ProjectRow = DbProject;
@@ -55,15 +56,85 @@ interface EditForm {
   stagingUrl: string;
   aliases: string;
   linearSlug: string;
+  webflowSlug: string;
+  neonOrgSlug: string;
+  darkColor: string;
+  lightColor: string;
+}
+
+/** Convert any supported color string (hsl, hex, etc.) to a hex value for the native color input */
+function colorToHex(color: string): string {
+  if (!color) return "";
+  const trimmed = color.trim().toLowerCase();
+
+  // Already hex
+  if (trimmed.startsWith("#")) {
+    if (trimmed.length === 4) {
+      return `#${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}${trimmed[3]}${trimmed[3]}`;
+    }
+    return trimmed;
+  }
+
+  // HSL
+  const hslMatch = trimmed.match(/^hsl\(\s*(\d+)\s*,\s*(\d+)%\s*,\s*(\d+)%\s*\)$/);
+  if (hslMatch) {
+    const h = parseInt(hslMatch[1]) / 360;
+    const s = parseInt(hslMatch[2]) / 100;
+    const l = parseInt(hslMatch[3]) / 100;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n: number) => {
+      const k = (n + h * 12) % 12;
+      const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+      return Math.round(255 * c).toString(16).padStart(2, "0");
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+  }
+
+  return "";
+}
+
+/** Convert hex to HSL string for storing in .tinker.yaml */
+function hexToHsl(hex: string): string {
+  if (!hex) return "";
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return `hsl(0, 0%, ${Math.round(l * 100)}%)`;
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = 0;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return `hsl(${Math.round(h * 360)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)`;
 }
 
 export default function ProjectsSettingsPage() {
   const [showArchived, setShowArchived] = useState(false);
+  const [search, setSearch] = useState("");
   const { data, refetch } = useDbQuery<{ success: boolean; projects: ProjectRow[] }>(
     "/api/db/projects",
     showArchived ? { includeArchived: "true" } : {}
   );
   const projects = data?.projects ?? [];
+
+  const filteredProjects = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return projects;
+    return projects.filter((p) =>
+      [p.projectName, p.repoName, p.org, p.description, p.aliases, p.linearSlug]
+        .filter(Boolean)
+        .some((field) => field.toLowerCase().includes(q))
+    );
+  }, [projects, search]);
+
+  const { data: configsData } = useDbQuery<{
+    success: boolean;
+    configs: Record<string, { color?: string; darkColor?: string; lightColor?: string; favicon?: string }>;
+  }>("/api/project-configs");
+  const projectConfigs = configsData?.configs ?? {};
 
   const [editingProject, setEditingProject] = useState<ProjectRow | null>(null);
   const [editForm, setEditForm] = useState<EditForm>({
@@ -73,10 +144,15 @@ export default function ProjectsSettingsPage() {
     stagingUrl: "",
     aliases: "",
     linearSlug: "",
+    webflowSlug: "",
+    neonOrgSlug: "",
+    darkColor: "",
+    lightColor: "",
   });
   const [saving, setSaving] = useState(false);
 
   const openEdit = (project: ProjectRow) => {
+    const config = projectConfigs[project.id];
     setEditingProject(project);
     setEditForm({
       projectName: project.projectName,
@@ -85,6 +161,10 @@ export default function ProjectsSettingsPage() {
       stagingUrl: project.stagingUrl,
       aliases: project.aliases,
       linearSlug: project.linearSlug,
+      webflowSlug: project.webflowSlug || "",
+      neonOrgSlug: project.neonOrgSlug || "",
+      darkColor: config?.darkColor ? colorToHex(config.darkColor) : "",
+      lightColor: config?.lightColor ? colorToHex(config.lightColor) : "",
     });
   };
 
@@ -92,11 +172,25 @@ export default function ProjectsSettingsPage() {
     if (!editingProject) return;
     setSaving(true);
     try {
+      const { darkColor, lightColor, ...dbFields } = editForm;
+      // Save DB fields
       await fetch("/api/db/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update", id: editingProject.id, ...editForm }),
+        body: JSON.stringify({ action: "update", id: editingProject.id, ...dbFields }),
       });
+      // Save colors to .tinker.yaml
+      if (darkColor || lightColor) {
+        await fetch("/api/project-configs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId: editingProject.id,
+            darkColor: darkColor ? hexToHsl(darkColor) : undefined,
+            lightColor: lightColor ? hexToHsl(lightColor) : undefined,
+          }),
+        });
+      }
       setEditingProject(null);
       refetch();
     } finally {
@@ -114,8 +208,8 @@ export default function ProjectsSettingsPage() {
     refetch();
   }, [refetch]);
 
-  const active = projects.filter((p) => !p.archived);
-  const archived = projects.filter((p) => p.archived);
+  const active = filteredProjects.filter((p) => !p.archived);
+  const archived = filteredProjects.filter((p) => p.archived);
 
   return (
     <SidebarProvider>
@@ -135,7 +229,16 @@ export default function ProjectsSettingsPage() {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search projects..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-8 w-[200px] pl-8 text-sm"
+              />
+            </div>
             <Button
               variant="outline"
               size="sm"
@@ -232,6 +335,48 @@ export default function ProjectsSettingsPage() {
                 <p className="text-xs text-muted-foreground">
                   Matches <code>linear.app/&#123;slug&#125;/...</code> browser activity
                 </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="webflowSlug">Webflow Slug</Label>
+                <Input
+                  id="webflowSlug"
+                  placeholder="my-site"
+                  value={editForm.webflowSlug}
+                  onChange={(e) => setEditForm({ ...editForm, webflowSlug: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Matches <code>&#123;slug&#125;.design.webflow.com</code> and <code>&#123;slug&#125;.webflow.io</code> browser activity
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="neonOrgSlug">Neon Org Slug</Label>
+                <Input
+                  id="neonOrgSlug"
+                  placeholder="my-neon-org"
+                  value={editForm.neonOrgSlug}
+                  onChange={(e) => setEditForm({ ...editForm, neonOrgSlug: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Free-form identifier — looks up <code>NEON_API_KEY</code> in <code>credentials.yaml</code> under <code>neon_keys</code>.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Terminal Colors</Label>
+                <p className="text-xs text-muted-foreground">
+                  Background colors for Terminal.app tabs. Saved to <code>.tinker.yaml</code>.
+                </p>
+                <div className="flex gap-4">
+                  <ColorPickerField
+                    label="Dark"
+                    value={editForm.darkColor}
+                    onChange={(v) => setEditForm({ ...editForm, darkColor: v })}
+                  />
+                  <ColorPickerField
+                    label="Light"
+                    value={editForm.lightColor}
+                    onChange={(v) => setEditForm({ ...editForm, lightColor: v })}
+                  />
+                </div>
               </div>
             </div>
             <DialogFooter>
@@ -360,5 +505,42 @@ function ProjectTable({
         ))}
       </TableBody>
     </Table>
+  );
+}
+
+function ColorPickerField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (hex: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        className="h-8 w-8 rounded border border-input shrink-0 cursor-pointer"
+        style={{ backgroundColor: value || "#1a1a2e" }}
+        onClick={() => inputRef.current?.click()}
+        title={`Pick ${label.toLowerCase()} color`}
+      />
+      <input
+        ref={inputRef}
+        type="color"
+        value={value || "#1a1a2e"}
+        onChange={(e) => onChange(e.target.value)}
+        className="sr-only"
+      />
+      <div className="flex flex-col">
+        <span className="text-xs font-medium">{label}</span>
+        <span className="text-[10px] text-muted-foreground font-mono">
+          {value || "not set"}
+        </span>
+      </div>
+    </div>
   );
 }

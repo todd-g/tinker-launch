@@ -191,6 +191,8 @@ function initSchema(db: Database.Database) {
     // Webflow project support
     "ALTER TABLE projects ADD COLUMN webflowSlug TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE activityDaily ADD COLUMN browserWebflowMinutes REAL NOT NULL DEFAULT 0",
+    // Neon API key lookup — free-form slug the user chooses to key credentials.yaml.neon_keys
+    "ALTER TABLE projects ADD COLUMN neonOrgSlug TEXT NOT NULL DEFAULT ''",
     // Automated session detection (e.g. /loop)
     "ALTER TABLE ccSessionStats ADD COLUMN isAutomated INTEGER NOT NULL DEFAULT 0",
     // Backfill: mark CC turns from automated sessions as non-reportable
@@ -222,6 +224,7 @@ export interface DbProject {
   aliases: string; // comma-separated alternative names for matching
   linearSlug: string; // Linear workspace slug for matching linear.app/{slug}/...
   webflowSlug: string; // Webflow site slug for matching {slug}.design.webflow.com etc.
+  neonOrgSlug: string; // Slug used to look up NEON_API_KEY in credentials.yaml.neon_keys
   archived: number; // 0 = active, 1 = archived
 }
 
@@ -299,7 +302,7 @@ export const projects = {
     db.prepare("UPDATE projects SET archived = ? WHERE id = ?").run(archived ? 1 : 0, id);
   },
 
-  update(id: string, fields: Partial<Pick<DbProject, "projectName" | "description" | "prodUrl" | "stagingUrl" | "aliases" | "linearSlug" | "webflowSlug" | "org" | "port" | "localPath" | "githubUrl">>): void {
+  update(id: string, fields: Partial<Pick<DbProject, "projectName" | "description" | "prodUrl" | "stagingUrl" | "aliases" | "linearSlug" | "webflowSlug" | "neonOrgSlug" | "org" | "port" | "localPath" | "githubUrl">>): void {
     const db = getDb();
     const entries = Object.entries(fields).filter(([, v]) => v !== undefined);
     if (entries.length === 0) return;

@@ -82,6 +82,8 @@ interface Credentials {
   accounts: Record<string, Account>;
   org_mapping: Record<string, string>;
   convex_keys: Record<string, ConvexKeys>;
+  linear_keys: Record<string, string>;
+  neon_keys: Record<string, string>;
 }
 
 interface DirenvStatus {
@@ -132,6 +134,16 @@ export default function CredentialsPage() {
     dev: "",
   });
 
+  // Linear key dialog state
+  const [linearKeyDialogOpen, setLinearKeyDialogOpen] = useState(false);
+  const [editingLinearKeyProject, setEditingLinearKeyProject] = useState<{ repoName: string; linearSlug: string } | null>(null);
+  const [linearKeyForm, setLinearKeyForm] = useState({ key: "" });
+
+  // Neon key dialog state
+  const [neonKeyDialogOpen, setNeonKeyDialogOpen] = useState(false);
+  const [editingNeonKeyProject, setEditingNeonKeyProject] = useState<{ repoName: string; neonOrgSlug: string } | null>(null);
+  const [neonKeyForm, setNeonKeyForm] = useState({ key: "" });
+
   // Org dialog state
   const [orgDialogOpen, setOrgDialogOpen] = useState(false);
   const [editingOrg, setEditingOrg] = useState<string | null>(null);
@@ -145,7 +157,7 @@ export default function CredentialsPage() {
   const [deleteOrg, setDeleteOrg] = useState<string | null>(null);
 
   // Bulk update state
-  const { data: projectsData } = useDbQuery<{ success: boolean; projects: Array<{ id: string; repoName: string; projectName: string; org: string; localPath: string; [key: string]: unknown }> }>("/api/db/projects");
+  const { data: projectsData } = useDbQuery<{ success: boolean; projects: Array<{ id: string; repoName: string; projectName: string; org: string; localPath: string; linearSlug: string; neonOrgSlug: string; [key: string]: unknown }> }>("/api/db/projects");
   const projects = projectsData?.projects;
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
   const [projectStatuses, setProjectStatuses] = useState<Record<string, ProjectGenStatus>>({});
@@ -335,6 +347,108 @@ export default function CredentialsPage() {
   const resetConvexKeysForm = () => {
     setConvexKeysForm({ production: "", preview: "", dev: "" });
     setEditingConvexKeysRepo(null);
+  };
+
+  const handleSaveLinearKey = async () => {
+    if (!editingLinearKeyProject) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          setLinearKey: {
+            slug: editingLinearKeyProject.linearSlug,
+            key: linearKeyForm.key,
+          },
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setCredentials(data.credentials);
+        setLinearKeyDialogOpen(false);
+        setLinearKeyForm({ key: "" });
+        setEditingLinearKeyProject(null);
+      }
+    } catch (error) {
+      console.error("Failed to save Linear key:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteLinearKey = async (linearSlug: string) => {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deleteLinearKey: { slug: linearSlug } }),
+      });
+      const data = await response.json();
+      if (data.success) setCredentials(data.credentials);
+    } catch (error) {
+      console.error("Failed to delete Linear key:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openEditLinearKey = (repoName: string, linearSlug: string) => {
+    setEditingLinearKeyProject({ repoName, linearSlug });
+    setLinearKeyForm({ key: "" });
+    setLinearKeyDialogOpen(true);
+  };
+
+  const handleSaveNeonKey = async () => {
+    if (!editingNeonKeyProject) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          setNeonKey: {
+            slug: editingNeonKeyProject.neonOrgSlug,
+            key: neonKeyForm.key,
+          },
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setCredentials(data.credentials);
+        setNeonKeyDialogOpen(false);
+        setNeonKeyForm({ key: "" });
+        setEditingNeonKeyProject(null);
+      }
+    } catch (error) {
+      console.error("Failed to save Neon key:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteNeonKey = async (neonOrgSlug: string) => {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deleteNeonKey: { slug: neonOrgSlug } }),
+      });
+      const data = await response.json();
+      if (data.success) setCredentials(data.credentials);
+    } catch (error) {
+      console.error("Failed to delete Neon key:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openEditNeonKey = (repoName: string, neonOrgSlug: string) => {
+    setEditingNeonKeyProject({ repoName, neonOrgSlug });
+    setNeonKeyForm({ key: "" });
+    setNeonKeyDialogOpen(true);
   };
 
   const resetOrgForm = () => {
@@ -585,7 +699,7 @@ export default function CredentialsPage() {
                 <div>
                   <CardTitle>Accounts</CardTitle>
                   <CardDescription>
-                    Vercel tokens for each account (Convex keys are per-project)
+                    Vercel tokens for each account (Convex, Linear, and Neon keys are per-project)
                   </CardDescription>
                 </div>
                 <Dialog open={accountDialogOpen} onOpenChange={(open) => {
@@ -868,6 +982,8 @@ export default function CredentialsPage() {
                       <TableHead>Org</TableHead>
                       <TableHead>Account (Vercel)</TableHead>
                       <TableHead>Convex Keys</TableHead>
+                      <TableHead>Linear Key</TableHead>
+                      <TableHead>Neon Key</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -878,6 +994,12 @@ export default function CredentialsPage() {
                       const hasVercelToken = account && account.vercel_token;
                       const convexKeys = credentials?.convex_keys?.[project.repoName];
                       const hasConvexKeys = convexKeys?.production || convexKeys?.preview || convexKeys?.dev;
+
+                      const linearSlug = project.linearSlug;
+                      const linearKey = linearSlug ? credentials?.linear_keys?.[linearSlug] : undefined;
+
+                      const neonOrgSlug = project.neonOrgSlug;
+                      const neonKey = neonOrgSlug ? credentials?.neon_keys?.[neonOrgSlug] : undefined;
 
                       return (
                         <TableRow key={project.id}>
@@ -932,6 +1054,68 @@ export default function CredentialsPage() {
                                 <Pencil className="h-3 w-3" />
                               </Button>
                             </div>
+                          </TableCell>
+                          <TableCell>
+                            {linearSlug ? (
+                              <div className="flex items-center gap-2">
+                                {linearKey ? (
+                                  <Badge variant="outline" className="text-xs font-mono">{linearSlug}</Badge>
+                                ) : (
+                                  <span className="text-xs text-yellow-600">Not set</span>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => openEditLinearKey(project.repoName, linearSlug)}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                {linearKey && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => handleDeleteLinearKey(linearSlug)}
+                                  >
+                                    <Trash2 className="h-3 w-3 text-destructive" />
+                                  </Button>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">No slug</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {neonOrgSlug ? (
+                              <div className="flex items-center gap-2">
+                                {neonKey ? (
+                                  <Badge variant="outline" className="text-xs font-mono">{neonOrgSlug}</Badge>
+                                ) : (
+                                  <span className="text-xs text-yellow-600">Not set</span>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => openEditNeonKey(project.repoName, neonOrgSlug)}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                {neonKey && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => handleDeleteNeonKey(neonOrgSlug)}
+                                  >
+                                    <Trash2 className="h-3 w-3 text-destructive" />
+                                  </Button>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">No slug</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             {status?.status === "generating" && (
@@ -1076,6 +1260,86 @@ export default function CredentialsPage() {
               <Button onClick={handleSaveConvexKeys} disabled={saving}>
                 {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Save Keys
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* Linear Key Dialog */}
+        <Dialog open={linearKeyDialogOpen} onOpenChange={(open) => {
+          setLinearKeyDialogOpen(open);
+          if (!open) { setLinearKeyForm({ key: "" }); setEditingLinearKeyProject(null); }
+        }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Linear API Key</DialogTitle>
+              <DialogDescription>
+                Set the Linear API key for workspace{" "}
+                <span className="font-mono font-medium">{editingLinearKeyProject?.linearSlug}</span>.
+                Leave empty to keep the existing value.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="linearKey">API Key</Label>
+                <Input
+                  id="linearKey"
+                  type="password"
+                  placeholder="lin_api_..."
+                  value={linearKeyForm.key}
+                  onChange={(e) => setLinearKeyForm({ key: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Generate from Linear → Settings → Security &amp; Access → Personal API keys
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setLinearKeyDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveLinearKey} disabled={saving || !linearKeyForm.key}>
+                {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Save Key
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* Neon Key Dialog */}
+        <Dialog open={neonKeyDialogOpen} onOpenChange={(open) => {
+          setNeonKeyDialogOpen(open);
+          if (!open) { setNeonKeyForm({ key: "" }); setEditingNeonKeyProject(null); }
+        }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Neon API Key</DialogTitle>
+              <DialogDescription>
+                Set the Neon API key for org slug{" "}
+                <span className="font-mono font-medium">{editingNeonKeyProject?.neonOrgSlug}</span>.
+                Leave empty to keep the existing value. Used as <code>NEON_API_KEY</code> by the Neon CLI.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="neonKey">API Key</Label>
+                <Input
+                  id="neonKey"
+                  type="password"
+                  placeholder="neon_..."
+                  value={neonKeyForm.key}
+                  onChange={(e) => setNeonKeyForm({ key: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Create in Neon Console → Settings → API keys (org-scoped recommended).
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setNeonKeyDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveNeonKey} disabled={saving || !neonKeyForm.key}>
+                {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Save Key
               </Button>
             </DialogFooter>
           </DialogContent>

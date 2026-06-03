@@ -7,10 +7,13 @@ import {
   getAccountForOrg,
   getAccount,
   getConvexKeys,
+  getLinearKey,
+  getNeonKey,
   generateEnvrcContent,
   generateCliShContent,
 } from "@/lib/credentials";
 import { getProjectGitInfo } from "@/lib/github";
+import { projects as projectsDb } from "@/lib/db";
 
 /**
  * POST /api/generate-project-env
@@ -85,6 +88,13 @@ export async function POST(request: Request) {
     // Get project-specific Convex keys
     const convexKeys = getConvexKeys(credentials, repoName);
 
+    // Get Linear API key via project's linearSlug
+    const project = projectsDb.getByRepoName(repoName);
+    const linearKey = project?.linearSlug ? getLinearKey(credentials, project.linearSlug) : undefined;
+
+    // Get Neon API key via project's neonOrgSlug
+    const neonKey = project?.neonOrgSlug ? getNeonKey(credentials, project.neonOrgSlug) : undefined;
+
     // Check if at least Vercel token is configured
     if (!account.vercel_token) {
       return NextResponse.json(
@@ -100,8 +110,8 @@ export async function POST(request: Request) {
     const cliShPath = path.join(projectPath, "cli.sh");
     const gitignorePath = path.join(projectPath, ".gitignore");
 
-    // Generate .envrc with account's Vercel token and project's Convex keys
-    const envrcContent = generateEnvrcContent(account, convexKeys);
+    // Generate .envrc with account's Vercel token, project's Convex keys, Linear key, and Neon key
+    const envrcContent = generateEnvrcContent(account, convexKeys, linearKey, neonKey);
     await writeFile(envrcPath, envrcContent);
 
     // Generate cli.sh
@@ -133,12 +143,18 @@ export async function POST(request: Request) {
 
 ## Deployments & Credentials
 
-This project uses credential files managed by Tinker Launch. The \`.envrc\` file contains environment variables for Vercel and Convex authentication.
+This project uses credential files managed by Tinker Launch. The \`.envrc\` file may contain any of:
+- \`VERCEL_TOKEN\` — Vercel deploy token (always set if account is configured)
+- \`CONVEX_DEPLOY_KEY\` / \`_PREVIEW\` / \`_DEV\` — Convex deploy keys (per-project)
+- \`LINEAR_API_KEY\` — Linear GraphQL API key (per workspace slug)
+- \`NEON_API_KEY\` — Neon CLI / API key (per Neon org slug)
 
 **Using cli.sh (recommended for agents):**
 \`\`\`bash
 ./cli.sh vercel              # Deploy to Vercel
 ./cli.sh npx convex deploy   # Deploy Convex functions
+./cli.sh neon projects list  # Neon CLI — reads NEON_API_KEY automatically (no login needed)
+./cli.sh neon branches create --project-id <id> --name feature/x
 ./cli.sh vercel whoami       # Check which Vercel account is active
 \`\`\`
 
@@ -147,6 +163,7 @@ The credentials auto-load when you \`cd\` into this directory. You can then run 
 \`\`\`bash
 vercel
 npx convex deploy
+neon projects list
 \`\`\`
 
 **Important:** Never commit \`.envrc\` - it contains sensitive tokens and is gitignored.
@@ -161,6 +178,8 @@ npx convex deploy
       message: `Generated credentials for ${account.name}`,
       repoName,
       hasConvexKeys: !!(convexKeys?.production || convexKeys?.preview),
+      hasLinearKey: !!linearKey,
+      hasNeonKey: !!neonKey,
       files: {
         envrc: envrcPath,
         cliSh: cliShPath,

@@ -137,13 +137,46 @@ export async function POST(request: Request) {
       }
     }
 
+    // Handle setting Linear API key for a workspace slug
+    if (body.setLinearKey) {
+      const { slug, key } = body.setLinearKey;
+      if (!credentials.linear_keys) credentials.linear_keys = {};
+      if (key !== undefined && key !== "") {
+        credentials.linear_keys[slug] = key;
+      }
+    }
+
+    // Handle deleting Linear API key for a workspace slug
+    if (body.deleteLinearKey) {
+      const { slug } = body.deleteLinearKey;
+      if (credentials.linear_keys) {
+        delete credentials.linear_keys[slug];
+      }
+    }
+
+    // Handle setting Neon API key for an org slug
+    if (body.setNeonKey) {
+      const { slug, key } = body.setNeonKey;
+      if (!credentials.neon_keys) credentials.neon_keys = {};
+      if (key !== undefined && key !== "") {
+        credentials.neon_keys[slug] = key;
+      }
+    }
+
+    // Handle deleting Neon API key for an org slug
+    if (body.deleteNeonKey) {
+      const { slug } = body.deleteNeonKey;
+      if (credentials.neon_keys) {
+        delete credentials.neon_keys[slug];
+      }
+    }
+
     await writeCredentials(credentials);
 
-    // Auto-regenerate .envrc when Convex keys change
-    let envrcSync: { repoName: string; regenerated: boolean; reason?: string }[] = [];
+    // Auto-regenerate .envrc for affected projects
+    const envrcSync: { repoName: string; regenerated: boolean; reason?: string }[] = [];
 
-    if (body.setConvexKeys) {
-      const repoName = body.setConvexKeys.repoName;
+    const regenProject = async (repoName: string) => {
       try {
         const project = projectsDb.getByRepoName(repoName);
         if (project?.localPath && project?.org) {
@@ -151,7 +184,9 @@ export async function POST(request: Request) {
             credentials,
             repoName,
             project.localPath,
-            project.org
+            project.org,
+            project.linearSlug || undefined,
+            project.neonOrgSlug || undefined
           );
           envrcSync.push({ repoName, ...result });
         } else {
@@ -161,6 +196,22 @@ export async function POST(request: Request) {
         console.error("Error during .envrc auto-sync for", repoName, e);
         envrcSync.push({ repoName, regenerated: false, reason: `sync failed: ${e instanceof Error ? e.message : "unknown"}` });
       }
+    };
+
+    if (body.setConvexKeys) {
+      await regenProject(body.setConvexKeys.repoName);
+    }
+
+    if (body.setLinearKey || body.deleteLinearKey) {
+      const slug = body.setLinearKey?.slug ?? body.deleteLinearKey?.slug;
+      const affected = projectsDb.list().filter((p) => p.linearSlug === slug);
+      for (const p of affected) await regenProject(p.repoName);
+    }
+
+    if (body.setNeonKey || body.deleteNeonKey) {
+      const slug = body.setNeonKey?.slug ?? body.deleteNeonKey?.slug;
+      const affected = projectsDb.list().filter((p) => p.neonOrgSlug === slug);
+      for (const p of affected) await regenProject(p.repoName);
     }
 
     // Return masked credentials
