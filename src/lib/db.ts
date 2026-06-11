@@ -146,6 +146,52 @@ function initSchema(db: Database.Database) {
   `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS usageDaily (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      projectSlug TEXT NOT NULL,
+      date TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      value REAL NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'vercel_api',
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      UNIQUE(account, provider, projectSlug, date, metric)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_usageDaily_account_date ON usageDaily(account, date);
+    CREATE INDEX IF NOT EXISTS idx_usageDaily_project ON usageDaily(account, provider, projectSlug);
+
+    CREATE TABLE IF NOT EXISTS siteChecks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      projectSlug TEXT NOT NULL,
+      org TEXT NOT NULL DEFAULT '',
+      url TEXT NOT NULL,
+      checkedAt INTEGER NOT NULL,
+      status INTEGER NOT NULL DEFAULT 0,
+      ok INTEGER NOT NULL DEFAULT 0,
+      ttfbMs REAL,
+      totalMs REAL,
+      error TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_siteChecks_project_time ON siteChecks(projectSlug, checkedAt);
+    CREATE INDEX IF NOT EXISTS idx_siteChecks_time ON siteChecks(checkedAt);
+
+    CREATE TABLE IF NOT EXISTS jobRuns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job TEXT NOT NULL,
+      account TEXT NOT NULL DEFAULT '',
+      startedAt INTEGER NOT NULL,
+      finishedAt INTEGER,
+      status TEXT NOT NULL DEFAULT 'running',
+      detail TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_jobRuns_job ON jobRuns(job, startedAt);
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS knowledgeBase (
       id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
       type TEXT NOT NULL CHECK(type IN ('decision', 'pattern', 'learning')),
@@ -867,6 +913,180 @@ export interface DbKBEntry {
   createdAt: number;
   updatedAt: number;
 }
+
+// ──────────────────────────────────────────────
+// Usage Daily (provider usage metrics, account-agnostic)
+//
+// Generic metric rows so different providers/ingest methods coexist:
+//   vercel_api emits: deploys, prod_deploys, error_deploys, build_ms
+//   a future log-drain ingester can emit: invocations, bandwidth_bytes, ...
+// Unique key excludes `source` — one value per metric per day, last writer wins.
+// ──────────────────────────────────────────────
+
+export interface DbUsageDaily {
+  id: number;
+  account: string;     // credentials.yaml account key: 'minima', 'personal', ...
+  provider: string;    // 'vercel' | 'convex' | 'neon'
+  projectSlug: string; // provider-side project name
+  date: string;        // YYYY-MM-DD
+  metric: string;
+  value: number;
+  source: string;      // ingest method: 'vercel_api', 'log_drain', ...
+  updatedAt: number;
+}
+
+export const usageDaily = {
+  upsertBatch(rows: Omit<DbUsageDaily, "id" | "updatedAt">[]): void {
+    const db = getDb();
+    const stmt = db.prepare(`
+      INSERT INTO usageDaily (account, provider, projectSlug, date, metric, value, source, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(account, provider, projectSlug, date, metric) DO UPDATE SET
+        value = excluded.value,
+        source = excluded.source,
+        updatedAt = excluded.updatedAt
+    `);
+    const insertMany = db.transaction((items: typeof rows) => {
+      const now = Date.now();
+      for (const r of items) {
+        stmt.run(r.account, r.provider, r.projectSlug, r.date, r.metric, r.value, r.source, now);
+      }
+    });
+    insertMany(rows);
+  },
+
+  list(opts?: { account?: string; provider?: string; projectSlug?: string; startDate?: string; endDate?: string }): DbUsageDaily[] {
+    const db = getDb();
+    let sql = "SELECT * FROM usageDaily WHERE 1=1";
+    const params: unknown[] = [];
+
+    if (opts?.account) { sql += " AND account = ?"; params.push(opts.account); }
+    if (opts?.provider) { sql += " AND provider = ?"; params.push(opts.provider); }
+    if (opts?.projectSlug) { sql += " AND projectSlug = ?"; params.push(opts.projectSlug); }
+    if (opts?.startDate) { sql += " AND date >= ?"; params.push(opts.startDate); }
+    if (opts?.endDate) { sql += " AND date <= ?"; params.push(opts.endDate); }
+
+    sql += " ORDER BY date, projectSlug, metric";
+    return db.prepare(sql).all(...params) as DbUsageDaily[];
+  },
+
+  listAccounts(): string[] {
+    const db = getDb();
+    const rows = db.prepare("SELECT DISTINCT account FROM usageDaily ORDER BY account").all() as { account: string }[];
+    return rows.map((r) => r.account);
+  },
+
+  clear(account?: string): void {
+    const db = getDb();
+    if (account) {
+      db.prepare("DELETE FROM usageDaily WHERE account = ?").run(account);
+    } else {
+      db.exec("DELETE FROM usageDaily");
+    }
+  },
+};
+
+// ──────────────────────────────────────────────
+// Site Checks (synthetic uptime / response-time probes)
+// ──────────────────────────────────────────────
+
+export interface DbSiteCheck {
+  id: number;
+  projectSlug: string;
+  org: string;
+  url: string;
+  checkedAt: number;
+  status: number;      // HTTP status; 0 = network/DNS/timeout failure
+  ok: number;          // 1 = healthy (2xx after redirects)
+  ttfbMs: number | null;
+  totalMs: number | null;
+  error: string;
+}
+
+export const siteChecks = {
+  insertBatch(checks: Omit<DbSiteCheck, "id">[]): void {
+    const db = getDb();
+    const stmt = db.prepare(`
+      INSERT INTO siteChecks (projectSlug, org, url, checkedAt, status, ok, ttfbMs, totalMs, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertMany = db.transaction((items: typeof checks) => {
+      for (const c of items) {
+        stmt.run(c.projectSlug, c.org, c.url, c.checkedAt, c.status, c.ok, c.ttfbMs, c.totalMs, c.error);
+      }
+    });
+    insertMany(checks);
+  },
+
+  list(opts?: { projectSlug?: string; sinceMs?: number }): DbSiteCheck[] {
+    const db = getDb();
+    let sql = "SELECT * FROM siteChecks WHERE 1=1";
+    const params: unknown[] = [];
+    if (opts?.projectSlug) { sql += " AND projectSlug = ?"; params.push(opts.projectSlug); }
+    if (opts?.sinceMs) { sql += " AND checkedAt >= ?"; params.push(opts.sinceMs); }
+    sql += " ORDER BY checkedAt";
+    return db.prepare(sql).all(...params) as DbSiteCheck[];
+  },
+
+  lastCheckedAt(): number | null {
+    const db = getDb();
+    const row = db.prepare("SELECT MAX(checkedAt) as t FROM siteChecks").get() as { t: number | null };
+    return row.t;
+  },
+
+  deleteOlderThan(cutoffMs: number): number {
+    const db = getDb();
+    return db.prepare("DELETE FROM siteChecks WHERE checkedAt < ?").run(cutoffMs).changes;
+  },
+};
+
+// ──────────────────────────────────────────────
+// Job Runs (log of background job executions)
+// ──────────────────────────────────────────────
+
+export interface DbJobRun {
+  id: number;
+  job: string;
+  account: string;
+  startedAt: number;
+  finishedAt: number | null;
+  status: "running" | "success" | "error";
+  detail: string; // JSON blob with job-specific stats or error message
+}
+
+export const jobRuns = {
+  start(job: string, account: string = ""): number {
+    const db = getDb();
+    const result = db.prepare(
+      "INSERT INTO jobRuns (job, account, startedAt, status) VALUES (?, ?, ?, 'running')"
+    ).run(job, account, Date.now());
+    return Number(result.lastInsertRowid);
+  },
+
+  finish(id: number, status: "success" | "error", detail: unknown): void {
+    const db = getDb();
+    db.prepare("UPDATE jobRuns SET finishedAt = ?, status = ?, detail = ? WHERE id = ?")
+      .run(Date.now(), status, typeof detail === "string" ? detail : JSON.stringify(detail), id);
+  },
+
+  list(opts?: { job?: string; account?: string; limit?: number }): DbJobRun[] {
+    const db = getDb();
+    let sql = "SELECT * FROM jobRuns WHERE 1=1";
+    const params: unknown[] = [];
+    if (opts?.job) { sql += " AND job = ?"; params.push(opts.job); }
+    if (opts?.account) { sql += " AND account = ?"; params.push(opts.account); }
+    sql += " ORDER BY startedAt DESC LIMIT ?";
+    params.push(opts?.limit ?? 50);
+    return db.prepare(sql).all(...params) as DbJobRun[];
+  },
+
+  lastSuccess(job: string, account: string): DbJobRun | undefined {
+    const db = getDb();
+    return db.prepare(
+      "SELECT * FROM jobRuns WHERE job = ? AND account = ? AND status = 'success' ORDER BY startedAt DESC LIMIT 1"
+    ).get(job, account) as DbJobRun | undefined;
+  },
+};
 
 export const knowledgeBase = {
   list(opts?: { type?: string; projectId?: string; search?: string }): DbKBEntry[] {
