@@ -25,9 +25,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useDbQuery, useDbMutation } from "@/hooks/use-db";
-import { Check, Copy, ExternalLink, Scan, Square } from "lucide-react";
+import { AlertTriangle, Check, Copy, ExternalLink, Scan, Square } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import type { Project } from "@/types/project";
+import type { PortConfig } from "@/lib/port-drift";
 import { isLightColor } from "@/lib/colors";
 
 interface TinkerConfig {
@@ -56,6 +57,19 @@ interface PortInfo {
   favicon?: string;
 }
 
+interface DriftRow {
+  id: string;
+  projectName: string;
+  repoName: string;
+  localPath: string;
+  registryPort: number;
+  configPort: number | null;
+  configBasis: string;
+  yamlPort: number | null;
+  livePort: number | null;
+  truthPort: number;
+}
+
 export default function PortsPage() {
   const { data: projectsData, refetch: refetchProjects } = useDbQuery<{ success: boolean; projects: Project[] }>("/api/db/projects");
   const projects = projectsData?.projects;
@@ -65,6 +79,10 @@ export default function PortsPage() {
   const [systemPorts, setSystemPorts] = useState<PortInfo[]>([]);
   const [lastScan, setLastScan] = useState<Date | null>(null);
   const [yamlCopied, setYamlCopied] = useState(false);
+
+  const { data: driftData, refetch: refetchDrift } = useDbQuery<{ success: boolean; configs: PortConfig[] }>("/api/port-drift");
+  const { mutate: reconcileDrift } = useDbMutation("/api/port-drift");
+  const [reconciling, setReconciling] = useState<string | null>(null);
 
   const tinkerYamlTemplate = `name: Project Name
 description: Brief description of the project
@@ -159,6 +177,43 @@ terminal:
     }
   };
 
+  // Drift = registry port disagrees with the real port (live listening port if the
+  // project's dir is running, else its package.json dev port), or .tinker.yaml is stale.
+  const normPath = (s?: string) => (s || "").replace(/\/+$/, "");
+  const driftRows: DriftRow[] = (driftData?.configs ?? []).flatMap((c) => {
+    const live = systemPorts.find((sp) => {
+      const cwd = normPath(sp.cwd);
+      const lp = normPath(c.localPath);
+      return cwd !== "" && (cwd === lp || cwd.startsWith(lp + "/"));
+    });
+    const livePort = live ? live.port : null;
+    const truthPort = livePort ?? c.configPort;
+    if (truthPort == null) return [];
+    const registryDrift = c.registryPort !== truthPort;
+    const yamlDrift = c.yamlPort != null && c.yamlPort !== truthPort;
+    if (!registryDrift && !yamlDrift) return [];
+    return [{
+      id: c.id, projectName: c.projectName, repoName: c.repoName, localPath: c.localPath,
+      registryPort: c.registryPort, configPort: c.configPort, configBasis: c.configBasis,
+      yamlPort: c.yamlPort, livePort, truthPort,
+    }];
+  });
+
+  const handleReconcile = async (row: DriftRow) => {
+    setReconciling(row.id);
+    try {
+      const res = await reconcileDrift({ projectId: row.id, targetPort: row.truthPort });
+      if (!res?.success) {
+        alert(`Could not reconcile ${row.projectName}: ${res?.error || "unknown error"}`);
+      } else {
+        await Promise.all([refetchDrift(), refetchProjects()]);
+        await scanPorts();
+      }
+    } finally {
+      setReconciling(null);
+    }
+  };
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -196,6 +251,85 @@ terminal:
           </div>
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+          {driftRows.length > 0 && (
+            <Card className="border-amber-500/50">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-amber-600">
+                  <AlertTriangle className="h-5 w-5" />
+                  Port Drift Detected ({driftRows.length})
+                </CardTitle>
+                <CardDescription>
+                  These projects&apos; registry port disagrees with their dev config or live
+                  server. Drift misattributes or drops localhost activity tracking. Reconcile
+                  updates the registry port (collision-guarded) and syncs .tinker.yaml.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Project</TableHead>
+                      <TableHead className="w-24">Registry</TableHead>
+                      <TableHead className="w-32">package.json</TableHead>
+                      <TableHead className="w-28">.tinker.yaml</TableHead>
+                      <TableHead className="w-20">Live</TableHead>
+                      <TableHead className="text-right">Reconcile</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {driftRows.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{row.projectName}</span>
+                            <span className="text-xs text-muted-foreground">{row.repoName}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <code className={row.registryPort !== row.truthPort ? "font-bold text-amber-600" : "text-muted-foreground"}>
+                            {row.registryPort}
+                          </code>
+                        </TableCell>
+                        <TableCell>
+                          <code
+                            className={row.configPort != null && row.configPort !== row.truthPort ? "font-bold text-amber-600" : "text-muted-foreground"}
+                            title={row.configBasis}
+                          >
+                            {row.configPort ?? "—"}
+                          </code>
+                        </TableCell>
+                        <TableCell>
+                          <code className={row.yamlPort != null && row.yamlPort !== row.truthPort ? "font-bold text-amber-600" : "text-muted-foreground"}>
+                            {row.yamlPort ?? "—"}
+                          </code>
+                        </TableCell>
+                        <TableCell>
+                          {row.livePort != null ? (
+                            <Badge className="bg-green-500/10 text-green-600 border-green-500/20">
+                              {row.livePort}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={reconciling === row.id}
+                            onClick={() => handleReconcile(row)}
+                          >
+                            {reconciling === row.id ? "Fixing…" : `Set to ${row.truthPort}`}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Active Dev Servers</CardTitle>
