@@ -70,6 +70,22 @@ function appIcon(app: string, host: string): string | null {
   return null;
 }
 
+function jobLabel(job: string): string {
+  return job === "assign_classify" ? "Classifier" : job === "assign_queue_build" ? "Queue build" : job;
+}
+
+function runResult(r: JobRunRow): string {
+  try {
+    const d = JSON.parse(r.detail);
+    if (typeof d === "string") return d;
+    if (r.job === "assign_queue_build") return `${d.clusters ?? "?"} clusters from ${d.snapshots ?? "?"} snapshots`;
+    if (r.job === "assign_classify") return d.summary || (d.exitCode === 0 ? "done" : `exit ${d.exitCode}`);
+    return (r.detail || "").slice(0, 200);
+  } catch {
+    return (r.detail || "").slice(0, 200);
+  }
+}
+
 const STATUS_TABS = [
   { key: "suggested", label: "Suggested" },
   { key: "pending", label: "Pending" },
@@ -116,10 +132,21 @@ function ProjectPicker({ value, projects, onChange }: {
   );
 }
 
+interface JobRunRow {
+  id: number;
+  job: string;
+  status: "running" | "success" | "error";
+  startedAt: number;
+  finishedAt: number | null;
+  detail: string;
+}
+
 export default function AssignPage() {
   const [status, setStatus] = useState<string>("suggested");
   const [overrides, setOverrides] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
+  const [classifying, setClassifying] = useState(false);
+  const [showRuns, setShowRuns] = useState(false);
 
   const { data: queueData, refetch } = useDbQuery<{ success: boolean; data: Cluster[]; counts: Record<string, number> }>(
     "/api/suggest", { status }
@@ -132,11 +159,15 @@ export default function AssignPage() {
   const { data: calData, refetch: refetchCal } = useDbQuery<{ success: boolean; syncIds: string[]; available: { id: string; summary: string }[] }>(
     "/api/calendar/settings"
   );
+  const { data: runsData, refetch: refetchRuns } = useDbQuery<{ success: boolean; runs: JobRunRow[]; running: boolean }>(
+    "/api/suggest/runs"
+  );
 
   const runMut = useDbMutation("/api/suggest/run");
   const reviewMut = useDbMutation("/api/suggest/review");
   const settingsMut = useDbMutation("/api/suggest/settings");
   const calMut = useDbMutation("/api/calendar/settings");
+  const classifyRunMut = useDbMutation("/api/suggest/classify-run");
 
   const clusters = useMemo(() => queueData?.data || [], [queueData]);
   const counts = queueData?.counts || {};
@@ -156,6 +187,25 @@ export default function AssignPage() {
     const next = syncIds.includes(id) ? syncIds.filter((x) => x !== id) : [...syncIds, id];
     await calMut.mutate({ syncIds: next });
     await refetchCal();
+  }
+
+  // Spawn the LLM classifier locally, then poll until the run finishes and refresh the inbox.
+  async function runClassifier() {
+    const res = await classifyRunMut.mutate({});
+    await refetchRuns();
+    if (!res?.success) return; // error (e.g. already running) — shows in the runs log
+    setClassifying(true);
+    const poll = async () => {
+      const r = await fetch("/api/suggest/runs").then((x) => x.json()).catch(() => null);
+      await refetchRuns();
+      if (r?.running) {
+        setTimeout(poll, 4000);
+      } else {
+        setClassifying(false);
+        await refetch();
+      }
+    };
+    setTimeout(poll, 3000);
   }
 
   async function rebuild() {
@@ -205,8 +255,14 @@ export default function AssignPage() {
           ))}
         </div>
 
-        <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={rebuild} disabled={busy}>
+        <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={rebuild} disabled={busy || classifying}>
           {busy ? "Working…" : "Rebuild queue"}
+        </Button>
+        <Button variant="default" size="sm" className="h-7 px-2 text-xs" onClick={runClassifier} disabled={busy || classifying}>
+          {classifying ? "Classifying…" : "Run classifier"}
+        </Button>
+        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => { setShowRuns((s) => !s); refetchRuns(); }}>
+          {showRuns ? "Hide runs" : "Runs"}
         </Button>
 
         <div className="flex items-center gap-1.5 ml-auto text-xs text-muted-foreground">
@@ -246,6 +302,47 @@ export default function AssignPage() {
           ))
         )}
       </div>
+
+      {/* Recent runs log */}
+      {showRuns && (
+        <Card>
+          <CardContent className="p-0">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left font-medium text-muted-foreground py-2 pl-4 pr-3">Run</th>
+                  <th className="text-left font-medium text-muted-foreground py-2 px-3">When</th>
+                  <th className="text-left font-medium text-muted-foreground py-2 px-3">Status</th>
+                  <th className="text-left font-medium text-muted-foreground py-2 px-3">Result</th>
+                  <th className="text-right font-medium text-muted-foreground py-2 pl-3 pr-4">Took</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(runsData?.runs || []).map((r) => (
+                  <tr key={`${r.job}-${r.id}`} className="border-b last:border-0">
+                    <td className="py-1.5 pl-4 pr-3 font-medium whitespace-nowrap">{jobLabel(r.job)}</td>
+                    <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">
+                      {new Date(r.startedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                    </td>
+                    <td className="py-1.5 px-3">
+                      <span className={r.status === "success" ? "text-green-600" : r.status === "error" ? "text-red-600" : "text-amber-600"}>
+                        {r.status}
+                      </span>
+                    </td>
+                    <td className="py-1.5 px-3 text-muted-foreground truncate max-w-[360px]" title={runResult(r)}>{runResult(r)}</td>
+                    <td className="py-1.5 pl-3 pr-4 text-right font-mono text-muted-foreground whitespace-nowrap">
+                      {r.finishedAt ? `${Math.round((r.finishedAt - r.startedAt) / 1000)}s` : "…"}
+                    </td>
+                  </tr>
+                ))}
+                {(runsData?.runs || []).length === 0 && (
+                  <tr><td colSpan={5} className="py-6 text-center text-muted-foreground">No runs yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
 
       {clusters.length === 0 ? (
         <Card>
