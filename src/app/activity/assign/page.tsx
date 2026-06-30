@@ -46,6 +46,30 @@ function timeRange(startTs: number, endTs: number): string {
   return `${f(startTs)}–${f(endTs)}`;
 }
 
+function formatDay(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// Resolve an app/site icon from the icons already wired up in /public/icons.
+// Host-specific (for browser activity) wins over the generic browser icon.
+function appIcon(app: string, host: string): string | null {
+  const a = (app || "").toLowerCase();
+  const h = (host || "").toLowerCase();
+  if (h.includes("mail.google")) return "/icons/gmail.ico";
+  if (h.includes("docs.google")) return "/icons/gdocs.ico";
+  if (h.includes("figma.com")) return "/icons/figma.png";
+  if (h.includes("linear.app")) return "/icons/linear.ico";
+  if (h.includes("webflow")) return "/icons/webflow.ico";
+  if (a.includes("zoom")) return "/icons/zoom.ico";
+  if (a.includes("slack")) return "/icons/slack.png";
+  if (a.includes("xcode")) return "/icons/xcode.png";
+  if (a.includes("claude")) return "/icons/claude.ico";
+  if (/terminal|iterm|ghostty|warp|kitty/.test(a)) return "/icons/terminal.svg";
+  if (/chrome|safari|brave|arc|firefox|edge/.test(a)) return "/icons/chrome.png";
+  return null;
+}
+
 const STATUS_TABS = [
   { key: "suggested", label: "Suggested" },
   { key: "pending", label: "Pending" },
@@ -105,10 +129,14 @@ export default function AssignPage() {
   const { data: settingsData, refetch: refetchSettings } = useDbQuery<{ success: boolean; autoApproveThreshold: number; autoRejectThreshold: number }>(
     "/api/suggest/settings"
   );
+  const { data: calData, refetch: refetchCal } = useDbQuery<{ success: boolean; syncIds: string[]; available: { id: string; summary: string }[] }>(
+    "/api/calendar/settings"
+  );
 
   const runMut = useDbMutation("/api/suggest/run");
   const reviewMut = useDbMutation("/api/suggest/review");
   const settingsMut = useDbMutation("/api/suggest/settings");
+  const calMut = useDbMutation("/api/calendar/settings");
 
   const clusters = useMemo(() => queueData?.data || [], [queueData]);
   const counts = queueData?.counts || {};
@@ -119,8 +147,16 @@ export default function AssignPage() {
   const configs = configsData?.configs || {};
   const approveThreshold = settingsData?.autoApproveThreshold ?? 0.9;
   const rejectThreshold = settingsData?.autoRejectThreshold ?? 1.0;
+  const syncIds = useMemo(() => calData?.syncIds || [], [calData]);
+  const availableCals = useMemo(() => calData?.available || [], [calData]);
 
   const projectName = (id: string | null) => id ? (projects.find((p) => p.id === id)?.projectName || id.slice(0, 8)) : null;
+
+  async function toggleCalendar(id: string) {
+    const next = syncIds.includes(id) ? syncIds.filter((x) => x !== id) : [...syncIds, id];
+    await calMut.mutate({ syncIds: next });
+    await refetchCal();
+  }
 
   async function rebuild() {
     setBusy(true);
@@ -196,6 +232,21 @@ export default function AssignPage() {
         )}
       </div>
 
+      {/* Calendar sync sources — meetings are matched against events from the checked calendars */}
+      <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap text-xs text-muted-foreground">
+        <span className="font-medium">Calendars synced:</span>
+        {availableCals.length === 0 ? (
+          <span>none yet — run <code className="text-foreground">/classify-unassigned</code> once to load your calendar list</span>
+        ) : (
+          availableCals.map((c) => (
+            <label key={c.id} className="flex items-center gap-1.5 cursor-pointer hover:text-foreground">
+              <input type="checkbox" checked={syncIds.includes(c.id)} onChange={() => toggleCalendar(c.id)} className="accent-current" />
+              <span className="truncate max-w-[180px]">{c.summary}</span>
+            </label>
+          ))
+        )}
+      </div>
+
       {clusters.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground text-sm">
@@ -212,9 +263,16 @@ export default function AssignPage() {
             const fav = c.suggestedProjectId ? faviconUrl(configs[c.suggestedProjectId]) : null;
             const selected = overrides[c.id] ?? (c.suggestedProjectId || "");
             const resolved = c.status === "applied" || c.status === "rejected";
+            const icon = appIcon(c.app, c.urlHost);
             return (
               <Card key={c.id}>
-                <CardContent className="py-3 px-4 flex items-center gap-4 flex-wrap">
+                <CardContent className="py-3 px-4 flex items-center gap-3 flex-wrap">
+                  {/* App icon */}
+                  {icon ? (
+                    <Image src={icon} alt="" width={30} height={30} className="shrink-0 rounded-md" unoptimized />
+                  ) : (
+                    <div className="shrink-0 w-[30px] h-[30px] rounded-md bg-muted" />
+                  )}
                   {/* What */}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 text-sm font-medium truncate">
@@ -224,8 +282,13 @@ export default function AssignPage() {
                     <div className="text-xs text-muted-foreground truncate">
                       {c.sampleTitle || c.sampleUrl || "—"}
                     </div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">
-                      {c.day} · {timeRange(c.startTs, c.endTs)} · {formatMin(c.minutes)}
+                  </div>
+
+                  {/* Time / duration — prominent */}
+                  <div className="shrink-0 text-right leading-tight">
+                    <div className="text-lg font-semibold tabular-nums">{formatMin(c.minutes)}</div>
+                    <div className="text-[11px] text-muted-foreground whitespace-nowrap">
+                      {formatDay(c.day)} · {timeRange(c.startTs, c.endTs)}
                     </div>
                   </div>
 

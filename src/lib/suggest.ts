@@ -15,7 +15,6 @@ import {
   calendarEvents,
   settings,
   type DbSnapshot,
-  type DbProject,
 } from "@/lib/db";
 
 function toLocalDateString(ts: number): string {
@@ -44,11 +43,32 @@ function clusterKeyOf(day: string, app: string, host: string): string {
   return host ? `${day}::${app}::h:${host}` : `${day}::${app}::app`;
 }
 
-// Meeting apps get split into contiguous time blocks (≈ one meeting each) so they line up
-// with individual calendar events, instead of lumping a whole day's calls into one cluster.
-function isMeetingApp(app: string, host: string): boolean {
-  const a = (app || "").toLowerCase();
-  return a.includes("zoom") || a.includes("granola") || (host || "").includes("meet.google.com");
+// A snapshot that represents being IN a meeting — Zoom, Google Meet, or a Slack huddle.
+// (Granola is excluded on purpose: it only observes meetings, it doesn't host them.)
+// These share one flow; meeting clusters are time-split per meeting so each pairs with a
+// single overlapping calendar event, then the LLM decides the project.
+function meetingLabel(s: DbSnapshot): string | null {
+  const a = (s.app || "").toLowerCase();
+  const host = urlHostOf(s.url).toLowerCase();
+  const title = (s.windowTitle || "").toLowerCase();
+  if (a.includes("zoom")) return "zoom";
+  if (host.includes("meet.google.com")) return "meet";
+  if (a.includes("slack") && title.includes("huddle")) return "huddle";
+  return null;
+}
+
+/** A queued cluster that represents a meeting (gets paired with overlapping calendar events). */
+function isMeetingClusterRow(c: { app: string; urlHost: string; sampleTitle: string }): boolean {
+  const a = (c.app || "").toLowerCase();
+  const host = (c.urlHost || "").toLowerCase();
+  const title = (c.sampleTitle || "").toLowerCase();
+  return a.includes("zoom") || host.includes("meet.google.com")
+    || (a.includes("slack") && title.includes("huddle"));
+}
+
+function pushTo(map: Map<string, DbSnapshot[]>, key: string, s: DbSnapshot): void {
+  const arr = map.get(key);
+  if (arr) arr.push(s); else map.set(key, [s]);
 }
 
 function splitContiguous(snaps: DbSnapshot[], gapMinutes: number): DbSnapshot[][] {
@@ -93,42 +113,42 @@ export function buildQueue(opts?: { startDate?: string; endDate?: string; minMin
     endDate: opts?.endDate,
   });
 
-  const groups = new Map<string, DbSnapshot[]>();
+  // Meetings cluster by (day, meeting-type) then time-split; everything else by (day, app, host).
+  const meetingGroups = new Map<string, DbSnapshot[]>();
+  const regularGroups = new Map<string, DbSnapshot[]>();
   for (const s of unmatched) {
     const day = toLocalDateString(s.timestamp);
-    const host = urlHostOf(s.url);
-    const key = clusterKeyOf(day, s.app, host);
-    const arr = groups.get(key);
-    if (arr) arr.push(s); else groups.set(key, [s]);
+    const label = meetingLabel(s);
+    if (label) pushTo(meetingGroups, `${day}::${label}`, s);
+    else pushTo(regularGroups, clusterKeyOf(day, s.app, urlHostOf(s.url)), s);
   }
 
   let written = 0;
   let skipped = 0;
-  for (const [key, groupSnaps] of groups) {
-    const app = groupSnaps[0].app;
-    const host = urlHostOf(groupSnaps[0].url);
-    // Meeting apps → split into contiguous blocks (≈ one meeting); everything else → one cluster.
-    const blocks = isMeetingApp(app, host) ? splitContiguous(groupSnaps, 15) : [groupSnaps];
+  const writeCluster = (clusterKey: string, snaps: DbSnapshot[]) => {
+    const clusterMinutes = snaps.reduce((sum, s) => sum + (s.durationSeconds ?? 10), 0) / 60;
+    if (clusterMinutes < minMinutes) { skipped++; return; }
+    written++;
+    const startTs = Math.min(...snaps.map((s) => s.timestamp));
+    const endTs = Math.max(...snaps.map((s) => s.timestamp));
+    assignmentQueue.upsertPending({
+      clusterKey,
+      day: toLocalDateString(snaps[0].timestamp),
+      app: snaps[0].app,
+      urlHost: urlHostOf(snaps[0].url),
+      sampleTitle: mostFrequent(snaps.map((s) => normalizeTitle(s.windowTitle))),
+      sampleUrl: mostFrequent(snaps.map((s) => s.url || "")),
+      snapshotIds: snaps.map((s) => s.id!).filter((id): id is number => typeof id === "number"),
+      startTs,
+      endTs,
+      minutes: clusterMinutes,
+    });
+  };
 
-    for (const snaps of blocks) {
-      const clusterMinutes = snaps.reduce((sum, s) => sum + (s.durationSeconds ?? 10), 0) / 60;
-      if (clusterMinutes < minMinutes) { skipped++; continue; }
-      written++;
-      const startTs = Math.min(...snaps.map((s) => s.timestamp));
-      const endTs = Math.max(...snaps.map((s) => s.timestamp));
-      const clusterKey = blocks.length > 1 ? `${key}::b${startTs}` : key;
-      assignmentQueue.upsertPending({
-        clusterKey,
-        day: toLocalDateString(snaps[0].timestamp),
-        app,
-        urlHost: host,
-        sampleTitle: mostFrequent(snaps.map((s) => normalizeTitle(s.windowTitle))),
-        sampleUrl: mostFrequent(snaps.map((s) => s.url || "")),
-        snapshotIds: snaps.map((s) => s.id!).filter((id): id is number => typeof id === "number"),
-        startTs,
-        endTs,
-        minutes: clusterMinutes,
-      });
+  for (const [key, snaps] of regularGroups) writeCluster(key, snaps);
+  for (const [key, snaps] of meetingGroups) {
+    for (const block of splitContiguous(snaps, 15)) {
+      writeCluster(`${key}::b${Math.min(...block.map((s) => s.timestamp))}`, block);
     }
   }
 
@@ -169,18 +189,33 @@ export function pendingPayload() {
     webflowSlug: p.webflowSlug,
   }));
 
-  const items = clusters.map((c) => ({
-    id: c.id,
-    day: c.day,
-    app: c.app,
-    urlHost: c.urlHost,
-    sampleTitle: c.sampleTitle,
-    sampleUrl: c.sampleUrl,
-    minutes: Math.round(c.minutes * 10) / 10,
-    timeRange: `${new Date(c.startTs).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}–${new Date(c.endTs).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
-    projectBefore: neighborProject(c.day, c.startTs, "before"),
-    projectAfter: neighborProject(c.day, c.endTs, "after"),
-  }));
+  const hm = (ts: number) => new Date(ts).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
+  const items = clusters.map((c) => {
+    const meeting = isMeetingClusterRow(c);
+    // For meetings, hand the LLM the overlapping calendar events — it decides if a project is clear.
+    const events = meeting
+      ? calendarEvents.listOverlapping(c.startTs, c.endTs).map((e) => ({
+          title: e.title,
+          attendees: e.attendees,
+          timeRange: `${hm(e.startTs)}–${hm(e.endTs)}`,
+        }))
+      : [];
+    return {
+      id: c.id,
+      day: c.day,
+      app: c.app,
+      urlHost: c.urlHost,
+      sampleTitle: c.sampleTitle,
+      sampleUrl: c.sampleUrl,
+      minutes: Math.round(c.minutes * 10) / 10,
+      timeRange: `${hm(c.startTs)}–${hm(c.endTs)}`,
+      projectBefore: neighborProject(c.day, c.startTs, "before"),
+      projectAfter: neighborProject(c.day, c.endTs, "after"),
+      meeting,
+      calendarEvents: events,
+    };
+  });
 
   return { clusters: items, projects };
 }
@@ -262,76 +297,32 @@ export function setAutoRejectThreshold(v: number): void {
 }
 
 // ──────────────────────────────────────────────
-// Deterministic calendar meeting-matcher
+// Calendar source settings
+//
+// All calendar→project decisions are made by the LLM (the deterministic token matcher was too
+// rough). The app only pairs meeting clusters with overlapping events (see pendingPayload) and
+// tracks which calendars to sync + the available list (populated by the classify skill).
 // ──────────────────────────────────────────────
 
-const norm = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const CAL_SYNC_KEY = "calendarSyncIds";
+const CAL_AVAIL_KEY = "calendarAvailable";
 
-/** Project match tokens (>=4 chars) from name/repo/aliases/slugs/prod+staging hosts. */
-function projectTokens(p: DbProject): string[] {
-  const out = new Set<string>();
-  const add = (s: string | undefined) => { const t = norm(s || ""); if (t.length >= 4) out.add(t); };
-  add(p.projectName); add(p.repoName); add(p.linearSlug); add(p.webflowSlug);
-  for (const a of (p.aliases || "").split(",")) add(a);
-  for (const u of [p.prodUrl, p.stagingUrl]) {
-    if (!u) continue;
-    const host = u.replace(/^https?:\/\//, "").split("/")[0].replace(/^www\./, "");
-    add(host.split(".")[0]);
-  }
-  return [...out];
+export interface CalendarRef { id: string; summary: string }
+
+export function getCalendarSyncIds(): string[] {
+  const v = settings.get(CAL_SYNC_KEY);
+  return Array.isArray(v) ? (v as string[]) : [];
 }
 
-// Only calendar-match clusters that were time-split into per-meeting blocks (zoom/meet/granola).
-// Slack huddles and hostless "meet sharing screen" clusters stay day-wide, so matching them by
-// time overlap is unreliable — leave those to the LLM / review.
-function isMeetingCluster(c: { app: string; urlHost: string }): boolean {
-  return isMeetingApp(c.app, c.urlHost);
+export function setCalendarSyncIds(ids: string[]): void {
+  settings.set(CAL_SYNC_KEY, ids.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()));
 }
 
-/**
- * For each pending meeting/Zoom/Meet/huddle cluster, find a calendar event overlapping its
- * time window whose title/attendees name exactly one project, and assign it. Auto-applies at
- * or above the approve threshold; otherwise leaves a high-signal suggestion for review.
- */
-export function matchCalendarForPending(): { matched: number; applied: number; suggested: number } {
-  const approve = getAutoApproveThreshold();
-  // Consider unresolved meeting clusters (pending OR already suggested — a calendar hit upgrades them).
-  const clusters = [
-    ...assignmentQueue.list({ status: "pending" }),
-    ...assignmentQueue.list({ status: "suggested" }),
-  ];
-  const projects = projectsDb.list();
-  const toks = projects.map((p) => ({ p, tokens: projectTokens(p) }));
+export function getCalendarAvailable(): CalendarRef[] {
+  const v = settings.get(CAL_AVAIL_KEY);
+  return Array.isArray(v) ? (v as CalendarRef[]) : [];
+}
 
-  let matched = 0, applied = 0, suggested = 0;
-  for (const c of clusters) {
-    if (!isMeetingCluster(c)) continue;
-    const events = calendarEvents.listOverlapping(c.startTs, c.endTs);
-    if (events.length === 0) continue;
-
-    // Collect every project named across overlapping events. Assign only if exactly one —
-    // the cluster window is coarse (a day's meetings lumped), so ambiguity → leave for review.
-    const named = new Map<string, { name: string; title: string }>();
-    for (const ev of events) {
-      const hay = norm(`${ev.title} ${ev.attendees}`);
-      for (const t of toks) {
-        if (t.tokens.some((tk) => hay.includes(tk))) named.set(t.p.id, { name: t.p.projectName, title: ev.title });
-      }
-    }
-    if (named.size !== 1) continue;
-    const [projectId, info] = [...named.entries()][0];
-
-    matched++;
-    const conf = 0.9;
-    const reason = `calendar: "${info.title}"`;
-    if (conf >= approve) {
-      applyCluster(c.id, projectId);
-      assignmentQueue.setSuggestion(c.id, projectId, conf, reason, "applied");
-      applied++;
-    } else {
-      assignmentQueue.setSuggestion(c.id, projectId, conf, reason, "suggested");
-      suggested++;
-    }
-  }
-  return { matched, applied, suggested };
+export function setCalendarAvailable(cals: CalendarRef[]): void {
+  settings.set(CAL_AVAIL_KEY, cals);
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { buildQueue, matchCalendarForPending } from "@/lib/suggest";
+import { buildQueue } from "@/lib/suggest";
 import { jobRuns } from "@/lib/db";
 import { runWindowIngest, ensureDaemonInstalled } from "@/lib/activity";
 
@@ -28,10 +28,8 @@ export async function POST(request: Request) {
     const minMinutes = parseFloat(searchParams.get("minMinutes") || "2");
 
     const res = buildQueue({ startDate, endDate, minMinutes });
-    // Deterministic calendar pass over the freshly-built meeting clusters.
-    const calendar = matchCalendarForPending();
-    jobRuns.finish(jobId, "success", { ...res, calendar, startDate, endDate, minMinutes });
-    return NextResponse.json({ success: true, ...res, calendar, window: { startDate, endDate, minMinutes } });
+    jobRuns.finish(jobId, "success", { ...res, startDate, endDate, minMinutes });
+    return NextResponse.json({ success: true, ...res, window: { startDate, endDate, minMinutes } });
   } catch (error) {
     jobRuns.finish(jobId, "error", String(error));
     return NextResponse.json({ success: false, error: String(error) }, { status: 500 });
