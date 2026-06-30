@@ -20,6 +20,7 @@ export async function GET(request: Request) {
       source: url.searchParams.get("source") || undefined,
       activityType: url.searchParams.get("activityType") || undefined,
       unassigned: url.searchParams.get("unassigned") === "1" || undefined,
+      assigned: url.searchParams.get("assigned") === "1" || undefined,
       chromeProfile: url.searchParams.get("chromeProfile") || undefined,
       browserCategory: url.searchParams.get("browserCategory") || undefined,
       slackWorkspace: url.searchParams.get("slackWorkspace") || undefined,
@@ -33,7 +34,8 @@ export async function GET(request: Request) {
     // If groupBy is specified, return aggregated summary instead of raw rows
     const groupBy = url.searchParams.get("groupBy");
     if (groupBy) {
-      const summary = activitySnapshots.summarize({ ...opts, groupBy });
+      const byDay = url.searchParams.get("byDay") === "1";
+      const summary = activitySnapshots.summarize({ ...opts, groupBy, byDay });
       return NextResponse.json({ success: true, data: summary });
     }
 

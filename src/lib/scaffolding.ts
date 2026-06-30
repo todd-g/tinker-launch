@@ -8,6 +8,7 @@ export interface ProjectConfig {
   org: string;
   description: string;
   port: number;
+  gitAuthor?: { name: string; email: string };
 }
 
 const PROJECTS_BASE_DIR = process.env.PROJECTS_DIR || `${process.env.HOME}/Documents/GitHub`;
@@ -23,7 +24,7 @@ export function getProjectPath(repoName: string): string {
  * Generate CLAUDE.md content
  */
 function generateClaudeMd(config: ProjectConfig): string {
-  return `# ${config.projectName}
+  let content = `# ${config.projectName}
 
 ${config.description}
 
@@ -43,6 +44,25 @@ ${config.description}
 - \`vercel\` - Deploy to Vercel
 - \`npx convex deploy\` - Deploy Convex functions
 `;
+
+  if (config.gitAuthor) {
+    content += `
+## Git Author
+
+When committing to this repo, always use:
+\`\`\`
+git commit --author="${config.gitAuthor.name} <${config.gitAuthor.email}>"
+\`\`\`
+
+Or set locally:
+\`\`\`
+git config user.email "${config.gitAuthor.email}"
+git config user.name "${config.gitAuthor.name}"
+\`\`\`
+`;
+  }
+
+  return content;
 }
 
 /**

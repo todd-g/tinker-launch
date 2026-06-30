@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Environments — Vercel + Convex</title>
+<style>
+  :root {
+    --bg: #0e0e10;
+    --panel: #16161a;
+    --panel-2: #1d1d22;
+    --line: #2a2a31;
+    --ink: #ececef;
+    --ink-dim: #9a9aa3;
+    --ink-faint: #6b6b74;
+    --accent: #ffb454;     /* amber */
+    --local: #7dd3fc;      /* sky */
+    --preview: #f0abfc;    /* fuchsia */
+    --prod: #86efac;       /* green */
+    --warn: #fca5a5;
+    --code-bg: #0a0a0c;
+    --radius: 10px;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --serif: ui-serif, "Iowan Old Style", "Apple Garamond", Georgia, serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; line-height: 1.55; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 56px 28px 120px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 32px; margin-bottom: 48px; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 12px; }
+  h1 { font-family: var(--serif); font-weight: 500; font-size: 44px; line-height: 1.1; letter-spacing: -0.02em; margin: 0 0 16px; }
+  h1 em { font-style: italic; color: var(--accent); }
+  .lede { font-size: 17px; color: var(--ink-dim); max-width: 640px; margin: 0; }
+  h2 { font-family: var(--serif); font-weight: 500; font-size: 28px; letter-spacing: -0.01em; margin: 64px 0 20px; }
+  h2 .num { font-family: var(--mono); font-size: 13px; color: var(--ink-faint); margin-right: 12px; vertical-align: 6px; }
+  h3 { font-size: 15px; font-weight: 600; margin: 28px 0 10px; letter-spacing: -0.005em; }
+  p { color: var(--ink-dim); margin: 0 0 14px; }
+  code, kbd { font-family: var(--mono); font-size: 0.88em; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; color: var(--ink); border: 1px solid var(--line); }
+
+  /* The three-lane diagram */
+  .lanes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 24px 0 8px; }
+  .lane { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; position: relative; overflow: hidden; }
+  .lane::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--c, var(--accent)); }
+  .lane.local { --c: var(--local); }
+  .lane.preview { --c: var(--preview); }
+  .lane.prod { --c: var(--prod); }
+  .lane h3 { margin: 4px 0 4px; display: flex; align-items: center; gap: 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--c); }
+  .lane .what { font-family: var(--serif); font-size: 22px; line-height: 1.2; margin: 4px 0 12px; color: var(--ink); }
+  .lane .row { display: flex; gap: 8px; font-family: var(--mono); font-size: 12px; padding: 6px 0; border-top: 1px dashed var(--line); color: var(--ink-dim); }
+  .lane .row .k { color: var(--ink-faint); min-width: 64px; }
+  .lane .row .v { color: var(--ink); }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--line); margin: 16px 0 0; }
+  .tab { background: none; border: none; color: var(--ink-faint); font-family: inherit; font-size: 13px; padding: 12px 16px; cursor: pointer; border-bottom: 2px solid transparent; transition: 0.15s; }
+  .tab:hover { color: var(--ink); }
+  .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; padding: 20px 0; }
+  .tab-panel.active { display: block; }
+
+  /* Matrix table */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: var(--mono); font-weight: 500; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+  td:first-child { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+  td .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); }
+  .pill.l { color: var(--local); border-color: color-mix(in srgb, var(--local) 35%, transparent); }
+  .pill.p { color: var(--preview); border-color: color-mix(in srgb, var(--preview) 35%, transparent); }
+  .pill.pr { color: var(--prod); border-color: color-mix(in srgb, var(--prod) 35%, transparent); }
+
+  /* Code block */
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; color: var(--ink); margin: 12px 0; }
+  pre .cmt { color: var(--ink-faint); }
+  pre .key { color: var(--accent); }
+  pre .str { color: var(--local); }
+
+  /* Git graph */
+  .gitwrap { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; margin: 20px 0; }
+  .gitgraph { display: grid; grid-template-columns: 110px 1fr; gap: 0 16px; align-items: center; font-family: var(--mono); font-size: 12.5px; }
+  .gitgraph .lbl { color: var(--ink-faint); padding: 14px 0; }
+  .gitgraph .track { position: relative; padding: 14px 0; }
+  .gitgraph .track::before { content: ""; position: absolute; left: 12px; top: 0; bottom: 0; width: 1px; background: var(--line); }
+  .gitgraph .node { display: inline-flex; align-items: center; gap: 10px; padding-left: 30px; position: relative; }
+  .gitgraph .node::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--c, var(--accent)); position: absolute; left: 7px; box-shadow: 0 0 0 3px var(--panel); }
+  .gitgraph .main { --c: var(--prod); }
+  .gitgraph .feat { --c: var(--preview); }
+  .gitgraph .dev { --c: var(--local); }
+  .gitgraph .note { color: var(--ink-dim); font-family: -apple-system, system-ui, sans-serif; font-size: 12px; }
+
+  /* Scenario picker */
+  .scn { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin: 16px 0; }
+  .scn-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .scn-btn { background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); font-family: inherit; font-size: 13px; padding: 8px 14px; border-radius: 999px; cursor: pointer; transition: 0.15s; }
+  .scn-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .scn-btn.active { background: var(--accent); color: #1a1300; border-color: var(--accent); }
+  .scn-body { min-height: 80px; }
+  .scn-body ol { margin: 0; padding-left: 22px; }
+  .scn-body li { padding: 6px 0; color: var(--ink); }
+  .scn-body li code { font-size: 0.85em; }
+  .scn-body .ans { color: var(--ink-dim); font-style: italic; }
+
+  /* Quiz */
+  .quiz { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin: 16px 0; }
+  .quiz .q { font-weight: 500; margin: 0 0 12px; color: var(--ink); }
+  .quiz .opts { display: flex; flex-direction: column; gap: 8px; }
+  .quiz .opt { background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); padding: 12px 14px; border-radius: 8px; cursor: pointer; text-align: left; font-family: inherit; font-size: 13px; transition: 0.12s; }
+  .quiz .opt:hover { border-color: var(--ink-faint); }
+  .quiz .opt.correct { border-color: var(--prod); background: color-mix(in srgb, var(--prod) 12%, var(--panel-2)); }
+  .quiz .opt.wrong { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--panel-2)); }
+  .quiz .feedback { margin-top: 12px; padding: 12px 14px; border-radius: 8px; font-size: 13px; display: none; }
+  .quiz .feedback.show { display: block; }
+  .quiz .feedback.good { background: color-mix(in srgb, var(--prod) 12%, var(--panel-2)); color: var(--ink); border-left: 3px solid var(--prod); }
+  .quiz .feedback.bad { background: color-mix(in srgb, var(--warn) 10%, var(--panel-2)); color: var(--ink); border-left: 3px solid var(--warn); }
+
+  /* Callout */
+  .callout { border-left: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+  .callout .label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
+  .callout p { color: var(--ink); margin: 0; }
+
+  /* Footer */
+  footer { margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--ink-faint); font-size: 12px; font-family: var(--mono); }
+
+  @media (max-width: 720px) {
+    .lanes { grid-template-columns: 1fr; }
+    h1 { font-size: 32px; }
+    .wrap { padding: 32px 20px 80px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Internal lesson · v1</div>
+    <h1>Where does the code <em>actually</em> run?</h1>
+    <p class="lede">A 10-minute lesson on three environments — your laptop, every pull request, and production — and how Vercel + Convex + Git fit together without anyone stepping on anyone else's data.</p>
+  </header>
+
+  <!-- SECTION 1 -->
+  <h2><span class="num">01</span> The three lanes</h2>
+  <p>Every change you make travels along one of three lanes. Each lane has its own frontend, its own database, and its own URL. Nothing leaks between them.</p>
+
+  <div class="lanes">
+    <div class="lane local">
+      <h3>● Local</h3>
+      <div class="what">Your laptop.</div>
+      <div class="row"><span class="k">frontend</span><span class="v">localhost:3000</span></div>
+      <div class="row"><span class="k">backend</span><span class="v">your dev convex</span></div>
+      <div class="row"><span class="k">data</span><span class="v">just yours</span></div>
+      <div class="row"><span class="k">trigger</span><span class="v">npm run dev</span></div>
+    </div>
+    <div class="lane preview">
+      <h3>● Preview</h3>
+      <div class="what">Every PR.</div>
+      <div class="row"><span class="k">frontend</span><span class="v">*.vercel.app</span></div>
+      <div class="row"><span class="k">backend</span><span class="v">preview convex</span></div>
+      <div class="row"><span class="k">data</span><span class="v">per-branch</span></div>
+      <div class="row"><span class="k">trigger</span><span class="v">git push</span></div>
+    </div>
+    <div class="lane prod">
+      <h3>● Production</h3>
+      <div class="what">The real thing.</div>
+      <div class="row"><span class="k">frontend</span><span class="v">yourdomain.com</span></div>
+      <div class="row"><span class="k">backend</span><span class="v">prod convex</span></div>
+      <div class="row"><span class="k">data</span><span class="v">real users</span></div>
+      <div class="row"><span class="k">trigger</span><span class="v">merge to main</span></div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="label">Your hunch, refined</div>
+    <p>You guessed Local → preview Convex, Staging → staging Convex, Prod → prod Convex. The shape is right, but the middle lane is better thought of as <strong>Preview</strong> — one isolated backend <em>per PR</em>, not one shared staging environment. Convex has first-class support for this via Preview Deployments. (If you genuinely need a long-lived shared staging too, you can add it — covered in §4.)</p>
+  </div>
+
+  <!-- SECTION 2 -->
+  <h2><span class="num">02</span> What runs where</h2>
+  <p>Click each tab to see how a single piece of the stack behaves in each lane.</p>
+
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="frontend">Frontend</button>
+    <button class="tab" data-tab="backend">Backend</button>
+    <button class="tab" data-tab="env">Env vars</button>
+    <button class="tab" data-tab="data">Data</button>
+  </div>
+
+  <div class="tab-panel active" data-panel="frontend">
+    <table>
+      <thead><tr><th></th><th>Local</th><th>Preview</th><th>Prod</th></tr></thead>
+      <tbody>
+        <tr><td>Where it runs</td><td>Your machine</td><td>Vercel edge</td><td>Vercel edge</td></tr>
+        <tr><td>URL</td><td><code>localhost:3000</code></td><td><code>pr-42-app.vercel.app</code></td><td><code>app.yoursite.com</code></td></tr>
+        <tr><td>Build</td><td>Hot reload</td><td>Per push</td><td>On merge to <code>main</code></td></tr>
+        <tr><td>Source</td><td>Working dir</td><td>Branch HEAD</td><td><code>main</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tab-panel" data-panel="backend">
+    <table>
+      <thead><tr><th></th><th>Local</th><th>Preview</th><th>Prod</th></tr></thead>
+      <tbody>
+        <tr><td>Convex tier</td><td>Dev deployment</td><td>Preview deployment</td><td>Production deployment</td></tr>
+        <tr><td>How it spawns</td><td><code>npx convex dev</code></td><td>Auto, per Vercel preview</td><td>Auto on prod deploy</td></tr>
+        <tr><td>One per…</td><td>Developer</td><td>Git branch / PR</td><td>App (singleton)</td></tr>
+        <tr><td>Lifetime</td><td>Until you stop it</td><td>Until PR closes</td><td>Forever</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tab-panel" data-panel="env">
+    <p>In Vercel, set three different <code>CONVEX_DEPLOY_KEY</code> values, scoped to each Vercel environment. Convex auto-detects which deployment to talk to.</p>
+    <pre><span class="cmt"># .env.local  (committed: NO)</span>
+<span class="key">NEXT_PUBLIC_CONVEX_URL</span>=<span class="str">https://your-dev-name-123.convex.cloud</span>
+
+<span class="cmt"># Vercel → Preview env</span>
+<span class="key">CONVEX_DEPLOY_KEY</span>=<span class="str">preview:team:project|...</span>
+
+<span class="cmt"># Vercel → Production env</span>
+<span class="key">CONVEX_DEPLOY_KEY</span>=<span class="str">prod:team:project|...</span></pre>
+    <p>The build command on Vercel becomes <code>npx convex deploy --cmd 'npm run build'</code> — Convex deploys the right backend, sets <code>NEXT_PUBLIC_CONVEX_URL</code> for the build, then runs Next.js's build. One command, both halves shipped to the same lane.</p>
+  </div>
+
+  <div class="tab-panel" data-panel="data">
+    <table>
+      <thead><tr><th></th><th>Local</th><th>Preview</th><th>Prod</th></tr></thead>
+      <tbody>
+        <tr><td>Seed data</td><td>You add it</td><td>From a seed script</td><td>Real users</td></tr>
+        <tr><td>Touchable?</td><td>Wipe whenever</td><td>Throwaway</td><td><strong>Never.</strong></td></tr>
+        <tr><td>Schema migrations</td><td>Try them here first</td><td>Verified in PR</td><td>Applied on deploy</td></tr>
+        <tr><td>If you break it</td><td>Reset your dev deploy</td><td>Close & reopen PR</td><td>Page someone</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- SECTION 3 -->
+  <h2><span class="num">03</span> Git, mapped to lanes</h2>
+  <p>One branch model handles all three. <strong>Trunk-based</strong>: <code>main</code> is always deployable, every change goes through a short-lived feature branch and a PR.</p>
+
+  <div class="gitwrap">
+    <div class="gitgraph">
+      <div class="lbl">main</div>
+      <div class="track">
+        <span class="node main">→ Production deploy on merge</span>
+      </div>
+
+      <div class="lbl">feat/x</div>
+      <div class="track">
+        <span class="node feat">→ Vercel Preview + Convex Preview</span>
+        <div class="note">Spun up on first push. Each push redeploys.</div>
+      </div>
+
+      <div class="lbl">your laptop</div>
+      <div class="track">
+        <span class="node dev">→ Your dev Convex + localhost</span>
+        <div class="note">Lives until you stop <code>npx convex dev</code>.</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Rules of the road</h3>
+  <ul style="color: var(--ink-dim); padding-left: 22px;">
+    <li><code>main</code> is sacred — it ships to prod. No direct pushes.</li>
+    <li>Branch from <code>main</code>, name it <code>feat/</code>, <code>fix/</code>, or <code>chore/</code>.</li>
+    <li>Open the PR early (even as draft) — that's what gives you a Preview URL to share.</li>
+    <li>Keep branches short — under a week. Long branches grow expensive merge conflicts and stale preview data.</li>
+    <li>Squash-merge to <code>main</code>. One PR = one commit on the trunk.</li>
+    <li>Reviews on the Preview URL, not on screenshots.</li>
+  </ul>
+
+  <h3>"But what about a real staging?"</h3>
+  <p>You probably don't need one. The PR preview <em>is</em> staging — a real Vercel build, a real Convex backend, isolated data, shareable URL. If you do need a stable long-lived environment (QA team, demo to stakeholders, integration partner testing):</p>
+  <ul style="color: var(--ink-dim); padding-left: 22px;">
+    <li>Add a <code>staging</code> branch in Git, protected like <code>main</code>.</li>
+    <li>Provision a second Convex project named <code>yourapp-staging</code> (or use a long-lived preview deployment).</li>
+    <li>In Vercel, point the <code>staging</code> branch at that backend via a custom env.</li>
+    <li>Flow: <code>feat/x → main → staging</code> (cherry-pick or fast-forward when ready to QA).</li>
+  </ul>
+  <p>Start without it. Add it only when a specific person is blocked without it.</p>
+
+  <!-- SECTION 4 -->
+  <h2><span class="num">04</span> Wait — where's the gate before prod?</h2>
+  <p>This is the question everyone asks moving off staging. The honest answer: yes, the latest <code>main</code> goes straight to prod on merge. But the single "staging gate" you're used to didn't disappear — it split into three cheaper, more targeted checks that run continuously.</p>
+
+  <div class="callout">
+    <div class="label">The mental shift</div>
+    <p>Old model: one gate (staging) tries to catch everything <em>before</em> the deploy. Modern model: the deploy itself is cheap and reversible, so the gates move <em>around</em> the deploy instead of in front of it.</p>
+  </div>
+
+  <h3>The three gates that replaced staging</h3>
+  <table>
+    <thead><tr><th>Gate</th><th>What it catches</th><th>When it runs</th></tr></thead>
+    <tbody>
+      <tr><td><strong>1. PR preview</strong></td><td>"Does this PR work in isolation?"</td><td>Every push to a branch</td></tr>
+      <tr><td><strong>2. Merge queue</strong></td><td>"Does <code>main</code> + this PR still pass CI?" Catches two PRs that work alone but conflict when both land.</td><td>At merge time</td></tr>
+      <tr><td><strong>3. Observability + rollback</strong></td><td>"Did the deploy regress anything?" Vercel instant rollback + Convex schema compat = bad deploys reversed in ~30s.</td><td>Continuous, post-deploy</td></tr>
+    </tbody>
+  </table>
+
+  <h3>What this means day-to-day</h3>
+  <ul style="color: var(--ink-dim); padding-left: 22px;">
+    <li><strong style="color: var(--ink);">Deploys are small and frequent.</strong> Ship to prod whenever <code>main</code> is green. Small reversible deploys beat big rare ones.</li>
+    <li><strong style="color: var(--ink);"><code>main</code> is the integration branch.</strong> Staging used to be "stuff we're about to ship, working together" — <code>main</code> is that now. Merge queue keeps it honest.</li>
+    <li><strong style="color: var(--ink);">The blast radius of a bad deploy is small.</strong> Errors visible in minutes, rollback in one click. That's what makes the no-staging model safe.</li>
+    <li><strong style="color: var(--ink);">Risky changes get a human on the preview URL.</strong> Not just CI green — an actual teammate clicks through the risky paths on the PR's preview before you merge. Cheap, surprisingly effective.</li>
+  </ul>
+
+  <h3>When you genuinely still want long-lived staging</h3>
+  <p>Don't fight the team if any of these apply:</p>
+  <ul style="color: var(--ink-dim); padding-left: 22px;">
+    <li>QA or product team that needs a stable URL to test against without PR churn</li>
+    <li>External integration partners who need a fixed non-prod endpoint</li>
+    <li>Compliance environments (SOC 2 evidence, HIPAA, audit trails)</li>
+    <li>Heavy data migrations you want to rehearse against a prod-shaped, stable dataset</li>
+  </ul>
+  <p>For most small product teams on Vercel + Convex, the four gates above replace staging entirely. Add it the day a specific person is blocked without it — not before.</p>
+
+  <!-- SECTION 5 -->
+  <h2><span class="num">05</span> Wiring the pipeline</h2>
+  <p>How a <code>git push</code> ends up with the right Vercel preview pointing at the right Convex preview — it comes down to <strong>one build command</strong> and <strong>three deploy keys</strong>.</p>
+
+  <h3>The build command (do this once)</h3>
+  <p>In Vercel → Project → Settings → General → Build Command, change it to:</p>
+<pre><span class="key">npx</span> convex deploy --cmd <span class="str">'npm run build'</span></pre>
+  <p>This single line is the glue. On every Vercel build, it:</p>
+  <ol style="color: var(--ink-dim); padding-left: 22px;">
+    <li>Reads <code>CONVEX_DEPLOY_KEY</code> from Vercel's build env.</li>
+    <li>Detects whether the key is <code>prod:</code> or <code>preview:</code> scoped.</li>
+    <li>For <strong>prod</strong>: deploys functions + schema to the production Convex deployment.</li>
+    <li>For <strong>preview</strong>: spins up (or reuses) a Convex preview deployment named after the git branch.</li>
+    <li>Sets <code>NEXT_PUBLIC_CONVEX_URL</code> into the build env, pointed at the deployment it just touched.</li>
+    <li>Runs <code>npm run build</code> — Next.js bakes that URL into the bundle.</li>
+  </ol>
+
+  <h3>The three deploy keys</h3>
+  <table>
+    <thead><tr><th>Lane</th><th>Where the key lives</th><th>What it points at</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill l">local</span></td><td><code>.env.local</code> — auto-written by <code>npx convex dev</code></td><td>Your personal dev deployment</td></tr>
+      <tr><td><span class="pill p">preview</span></td><td>Vercel env vars, scoped to <strong>Preview only</strong></td><td>Per-branch Convex preview</td></tr>
+      <tr><td><span class="pill pr">prod</span></td><td>Vercel env vars, scoped to <strong>Production only</strong></td><td>The real Convex</td></tr>
+    </tbody>
+  </table>
+
+  <h3>One-time setup, per project</h3>
+  <p><strong>Easy path:</strong> install the official <strong>Convex Vercel integration</strong> from the Vercel marketplace. It plumbs the deploy keys automatically — no copy-paste. Recommended.</p>
+  <p><strong>Manual path:</strong></p>
+  <ol style="color: var(--ink-dim); padding-left: 22px;">
+    <li>Convex dashboard → Settings → URL & Deploy Key → generate a <strong>preview</strong> deploy key (starts with <code>preview:</code>).</li>
+    <li>Same screen → generate a <strong>prod</strong> deploy key (starts with <code>prod:</code>).</li>
+    <li>Vercel → Project → Settings → Environment Variables:
+      <ul>
+        <li>Add <code>CONVEX_DEPLOY_KEY</code> = preview key, scope: <strong>Preview only</strong></li>
+        <li>Add <code>CONVEX_DEPLOY_KEY</code> = prod key, scope: <strong>Production only</strong></li>
+      </ul>
+    </li>
+    <li>Vercel → Project → Settings → General → set the Build Command (above).</li>
+    <li>Confirm <code>convex</code> is in <code>dependencies</code> in <code>package.json</code> (not <em>only</em> <code>devDependencies</code>) — Vercel needs it at build time.</li>
+  </ol>
+
+  <div class="callout">
+    <div class="label">The one rule</div>
+    <p>Never set <code>NEXT_PUBLIC_CONVEX_URL</code> directly in Vercel's env UI. Let <code>convex deploy</code> set it. Hardcode it and every preview points at the same backend — exactly the isolation you're trying to gain.</p>
+  </div>
+
+  <h3>Seeding preview deployments</h3>
+  <p>By default a fresh Convex preview starts empty — correct schema, zero rows. To seed it on creation, extend the build command:</p>
+<pre><span class="key">npx</span> convex deploy --cmd <span class="str">'npm run build'</span> --preview-run <span class="str">'seed:initial'</span></pre>
+  <p>The <code>seed:initial</code> function runs against the new preview backend right after it's created and before the build finishes. Good for: fixture users, demo content, baseline records the UI assumes exist.</p>
+
+  <h3>Wait, where does <code>npm run build</code> actually run?</h3>
+  <p>Vercel's build infrastructure. Not GitHub Actions, not your laptop. The flow:</p>
+  <ol style="color: var(--ink-dim); padding-left: 22px;">
+    <li>You <code>git push</code>. GitHub fires a webhook to Vercel.</li>
+    <li>Vercel spins up an ephemeral build container in its own cloud.</li>
+    <li>That container clones the repo, runs <code>npm install</code>, then runs your Build Command.</li>
+    <li><code>convex deploy</code> (running inside the container) makes an API call to Convex's servers — "here's the new backend code, deploy it."</li>
+    <li><code>npm run build</code> (also inside the container) compiles the Next.js bundle.</li>
+    <li>The compiled output ships to Vercel's edge network to serve.</li>
+  </ol>
+  <table>
+    <thead><tr><th>Stage</th><th>Where it runs</th></tr></thead>
+    <tbody>
+      <tr><td><code>git push</code></td><td>Your machine → GitHub</td></tr>
+      <tr><td><code>npm install</code> + <code>npm run build</code> + <code>convex deploy</code> CLI</td><td>Vercel's build container (ephemeral)</td></tr>
+      <tr><td>Convex functions executing</td><td>Convex's servers</td></tr>
+      <tr><td>Next.js frontend serving requests</td><td>Vercel's edge</td></tr>
+      <tr><td>Local dev — <code>npm run dev</code></td><td>Your laptop, talking to Convex's servers</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">
+    <div class="label">Mental model</div>
+    <p>Nothing ever runs on your laptop after a <code>git push</code>. Your local dev is one thing; the deployed environments are entirely Vercel + Convex's cloud, glued together by that one build command.</p>
+  </div>
+
+  <h3>Verifying it's wired right</h3>
+  <ol style="color: var(--ink-dim); padding-left: 22px;">
+    <li>Push a feature branch.</li>
+    <li>Wait for Vercel's preview to deploy. Click the URL.</li>
+    <li>Open the Convex dashboard — confirm a preview deployment named after your branch exists.</li>
+    <li>On the live preview, DevTools → Network. Convex requests should go to the <em>preview</em> URL, not prod.</li>
+    <li>Make a write in the preview UI. Confirm it lands in the preview Convex dashboard, <strong>not</strong> in prod.</li>
+  </ol>
+  <p>If step 5 ever shows data in prod, stop and re-check your env-var scoping before pushing anything else.</p>
+
+  <h3>Are Vercel and Convex actually in sync?</h3>
+  <p>Pretty much. The build command pins both halves to one git commit, deployed in one step. The exact sequence on a prod deploy:</p>
+  <ol style="color: var(--ink-dim); padding-left: 22px;">
+    <li>Convex deploys the backend (functions + schema) <strong>first</strong>.</li>
+    <li>Vercel runs <code>npm run build</code> with the new URL injected.</li>
+    <li>Both succeed → new frontend goes live alongside the new backend.</li>
+    <li>Anything fails → the whole build fails, Vercel keeps serving the old frontend.</li>
+  </ol>
+  <p>The one wrinkle: there's a ~10-30 second window during step 2 where the new Convex backend is already live but the old frontend is still serving. That's safe <strong>only if your schema changes are backwards-compatible</strong> — the old frontend has to keep working against the new backend.</p>
+
+  <div class="callout">
+    <div class="label">Expand-then-contract</div>
+    <p>For breaking schema changes (rename a function, remove a field, tighten validation), split it across three PRs: <strong>(1) Expand</strong> — add the new shape, old code still works. <strong>(2) Migrate</strong> — code now uses the new shape; backfill old data. <strong>(3) Contract</strong> — remove the old shape, safely. Cheap deploys stay cheap <em>for backwards-compat changes only.</em></p>
+  </div>
+
+  <p>Same logic applies to rollback: Vercel's "Instant Rollback" reverses the frontend, not Convex. For alpha-scale, the practical move is <strong>fix forward</strong> — push a PR that reverts the breaking change rather than trying to roll back. Backwards-compat habits make this painless.</p>
+
+  <!-- SECTION 6 -->
+  <h2><span class="num">06</span> Pick a scenario</h2>
+  <p>Click a situation. The lesson tells you where to do the work.</p>
+
+  <div class="scn">
+    <div class="scn-list" id="scnList">
+      <button class="scn-btn active" data-scn="schema">Changing the schema</button>
+      <button class="scn-btn" data-scn="ui">Tweaking a UI component</button>
+      <button class="scn-btn" data-scn="bug">Reproducing a prod bug</button>
+      <button class="scn-btn" data-scn="seed">Need realistic data to demo</button>
+      <button class="scn-btn" data-scn="hotfix">Critical prod hotfix</button>
+      <button class="scn-btn" data-scn="flag">Shipping a high-stakes feature</button>
+      <button class="scn-btn" data-scn="experiment">Risky experiment</button>
+    </div>
+    <div class="scn-body" id="scnBody"></div>
+  </div>
+
+  <!-- SECTION 7 -->
+  <h2><span class="num">07</span> The five mistakes we want to avoid</h2>
+  <ol style="color: var(--ink-dim); padding-left: 22px;">
+    <li><strong style="color: var(--ink);">Pointing local Next.js at prod Convex.</strong> One bad mutation = real users affected. Your <code>.env.local</code> should never contain a prod URL.</li>
+    <li><strong style="color: var(--ink);">Sharing one Convex dev deployment across the team.</strong> Each developer runs <code>npx convex dev</code> to get their own. Stomping on each other's seed data wastes hours.</li>
+    <li><strong style="color: var(--ink);">Testing migrations only in dev.</strong> Prod data has shapes dev never sees. Run the migration against a Preview deployment with prod-shaped seed data before merging.</li>
+    <li><strong style="color: var(--ink);">Long-lived branches.</strong> A week-old branch has a week-old preview database. Either it's stale or you re-seeded — either way, it's not testing what main will look like.</li>
+    <li><strong style="color: var(--ink);">Committing <code>.env.local</code> or deploy keys.</strong> Use Vercel's env UI. Use <code>git secret-scan</code> in CI.</li>
+  </ol>
+
+  <!-- SECTION 8 -->
+  <h2><span class="num">08</span> Check yourself</h2>
+
+  <div class="quiz" data-correct="2">
+    <div class="q">Q1. You're starting a new feature. What's the first command you run on your laptop?</div>
+    <div class="opts">
+      <button class="opt" data-i="0">Switch to <code>main</code> and run <code>npm run dev</code></button>
+      <button class="opt" data-i="1">Create the branch and push it — the preview env is where I work</button>
+      <button class="opt" data-i="2">Branch from <code>main</code>, then run <code>npx convex dev</code> and <code>npm run dev</code></button>
+      <button class="opt" data-i="3">Pull prod data into my local Convex first</button>
+    </div>
+    <div class="feedback"></div>
+  </div>
+
+  <div class="quiz" data-correct="1">
+    <div class="q">Q2. A PR's preview URL shows the bug, but it's not reproducing locally. Most likely?</div>
+    <div class="opts">
+      <button class="opt" data-i="0">Vercel is having an outage</button>
+      <button class="opt" data-i="1">Your local Convex has different data or schema than the preview's seeded backend</button>
+      <button class="opt" data-i="2">Next.js builds differently in prod mode</button>
+      <button class="opt" data-i="3">Convex preview is on a newer version</button>
+    </div>
+    <div class="feedback"></div>
+  </div>
+
+  <div class="quiz" data-correct="3">
+    <div class="q">Q3. Where do you run a destructive schema migration for the first time?</div>
+    <div class="opts">
+      <button class="opt" data-i="0">Production, off-peak hours</button>
+      <button class="opt" data-i="1">A teammate's dev deployment, to test it on different data</button>
+      <button class="opt" data-i="2">Skip — Convex migrations are always safe</button>
+      <button class="opt" data-i="3">Your dev deployment first, then a PR with prod-shaped seed data, then merge</button>
+    </div>
+    <div class="feedback"></div>
+  </div>
+
+  <div class="quiz" data-correct="0">
+    <div class="q">Q4. What does merging a PR to <code>main</code> trigger?</div>
+    <div class="opts">
+      <button class="opt" data-i="0">Vercel builds and ships the frontend to prod; <code>convex deploy</code> ships functions & schema to prod Convex</button>
+      <button class="opt" data-i="1">Only the frontend deploys — Convex has to be deployed manually</button>
+      <button class="opt" data-i="2">Nothing until you click "Promote" in Vercel</button>
+      <button class="opt" data-i="3">A new preview deployment is created</button>
+    </div>
+    <div class="feedback"></div>
+  </div>
+
+  <footer>
+    end of lesson · save this URL · update when our setup changes
+  </footer>
+</div>
+
+<script>
+  // Tabs
+  const tabs = document.querySelectorAll('.tab');
+  const panels = document.querySelectorAll('.tab-panel');
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.classList.remove('active'));
+    panels.forEach(p => p.classList.remove('active'));
+    t.classList.add('active');
+    document.querySelector(`[data-panel="${t.dataset.tab}"]`).classList.add('active');
+  }));
+
+  // Scenarios
+  const scenarios = {
+    schema: {
+      title: "Changing the schema",
+      steps: [
+        "Branch <code>feat/add-foo-table</code> from <code>main</code>.",
+        "Run <code>npx convex dev</code> — your dev deployment picks up the schema change locally.",
+        "Iterate until queries/mutations work against your dev data.",
+        "Push the branch. Convex spins up a Preview deployment with the new schema; Vercel builds the preview URL.",
+        "Run your seed script against the preview deployment. Verify migrations don't break.",
+        "Open PR, share preview URL for review.",
+        "Merge → prod Convex applies the schema, prod frontend deploys.",
+      ],
+      ans: "The schema lives with the code — when the branch merges, the schema migrates. That's why testing on a preview with realistic data matters."
+    },
+    ui: {
+      title: "Tweaking a UI component",
+      steps: [
+        "Branch <code>fix/button-padding</code> from <code>main</code>.",
+        "<code>npm run dev</code> — no need to restart Convex; the backend is unchanged.",
+        "Iterate visually on localhost:3000.",
+        "Push → preview URL.",
+        "Drop the preview URL in the PR description and tag a reviewer.",
+        "Merge.",
+      ],
+      ans: "UI-only changes don't touch the backend lane at all. Convex deploy is a no-op."
+    },
+    bug: {
+      title: "Reproducing a prod bug",
+      steps: [
+        "<strong>Do not</strong> point local at prod Convex.",
+        "Branch <code>fix/checkout-crash</code> from <code>main</code>.",
+        "If you can repro from prod data shape alone: write a failing test on dev with that shape.",
+        "If you need the actual record: export the (anonymized) row from prod, import to your dev deployment.",
+        "Fix, push, share the preview URL with whoever reported it to confirm the fix.",
+        "Merge.",
+      ],
+      ans: "The temptation is to debug against prod. Resist — copy the offending data shape into dev instead."
+    },
+    seed: {
+      title: "Need realistic data to demo",
+      steps: [
+        "Open the PR (even as draft) — that gives you a Preview deployment.",
+        "Run <code>npx convex run seed:demo --prod-url &lt;preview-url&gt;</code> (or your equivalent seed function).",
+        "Share the preview URL — it's stable for the life of the PR.",
+        "When the PR closes, the data goes with it. That's fine — re-seed next time.",
+      ],
+      ans: "Preview deployments are great demo environments. They're isolated, real, and self-destruct."
+    },
+    hotfix: {
+      title: "Critical prod hotfix",
+      steps: [
+        "Branch <code>hotfix/payment-500</code> directly from <code>main</code>.",
+        "Minimal change. Resist scope creep.",
+        "Push → preview deploys. Verify the fix against the preview's seeded data.",
+        "<strong>Important:</strong> if data shape on prod is the actual trigger, the preview won't reproduce. Verify behavior matches your local reasoning.",
+        "Get one reviewer (don't block on full review for a true hotfix).",
+        "Merge to <code>main</code>. Watch the prod deploy logs.",
+        "Backfill a test in a follow-up PR.",
+      ],
+      ans: "Same branch flow as everything else — but smaller scope, faster review, follow-up test next day."
+    },
+    flag: {
+      title: "Shipping a high-stakes feature (alpha mode)",
+      steps: [
+        "Build it on a branch as normal.",
+        "PR preview — seed it with the kind of data that exercises the risky paths, not just the happy path.",
+        "Get an actual teammate to click through the new flow on the preview URL. Live human, not just CI green.",
+        "Pick a low-traffic window to merge (end of day for your users' timezone is fine while you're alpha).",
+        "Merge. Watch errors and logs for the first 30 minutes — Convex logs, Vercel logs, your error tracker.",
+        "Keep one finger on the rollback. Vercel's 'Instant Rollback' reverses the frontend in seconds; Convex schema compat usually means the backend just keeps working through it.",
+      ],
+      ans: "Preview-tested + low-traffic merge + watchful first 30 min + rollback ready = a good-enough gate while you're alpha-scale."
+    },
+    experiment: {
+      title: "Risky experiment",
+      steps: [
+        "Branch <code>spike/new-ranking-algo</code> from <code>main</code>.",
+        "Build it on your dev deployment — keep it cheap.",
+        "Push when you want a shareable URL. The preview is the experiment.",
+        "If it works: clean up, open a real PR.",
+        "If it doesn't: close the branch. The preview deployment disappears. No prod risk, no leftover infra.",
+      ],
+      ans: "Preview deployments are perfect for spikes. The blast radius is zero."
+    }
+  };
+
+  const scnBody = document.getElementById('scnBody');
+  const scnButtons = document.querySelectorAll('.scn-btn');
+  function showScn(key) {
+    const s = scenarios[key];
+    scnBody.innerHTML = `<h3 style="margin-top:0">${s.title}</h3>
+      <ol>${s.steps.map(x => `<li>${x}</li>`).join('')}</ol>
+      <p class="ans">${s.ans}</p>`;
+  }
+  scnButtons.forEach(b => b.addEventListener('click', () => {
+    scnButtons.forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    showScn(b.dataset.scn);
+  }));
+  showScn('schema');
+
+  // Quiz
+  const explanations = {
+    0: [
+      null,
+      "<code>main</code> can be in any state when prod ships, but you don't work *on* main. Branch first.",
+      "Yes. Branch from main, start both Convex (backend) and Next (frontend) locally. Both are needed.",
+      "Never copy prod data to your laptop — privacy, footgun risk, and unnecessary. Use seed data."
+    ],
+    1: [
+      "Unlikely — Vercel status would affect everyone.",
+      "Yes. Preview gets a seeded backend per-branch; your local backend is whatever you've poked at. Different data → different bugs.",
+      "Possible but rare. Differences in data are far more common.",
+      "Preview and prod run the same Convex version."
+    ],
+    2: [
+      "Production should be the *last* place a migration runs, after dev and preview verification.",
+      "Their dev data is just as arbitrary as yours. Doesn't add safety.",
+      "Migrations can absolutely lose data if written wrong. Always verify first.",
+      "Yes. Dev for fast iteration → PR with realistic seed → merge. Each step adds a layer of confidence."
+    ],
+    3: [
+      "Yes. <code>npx convex deploy</code> wrapped around the Next build means both halves ship to the same lane atomically.",
+      "Convex is part of the same Vercel build command — it's not a separate step.",
+      "Vercel auto-promotes <code>main</code> to prod by default; no manual click.",
+      "Previews are for branches, not merges to main."
+    ]
+  };
+
+  document.querySelectorAll('.quiz').forEach((quiz, qIdx) => {
+    const correct = parseInt(quiz.dataset.correct);
+    const opts = quiz.querySelectorAll('.opt');
+    const fb = quiz.querySelector('.feedback');
+    opts.forEach(opt => opt.addEventListener('click', () => {
+      const i = parseInt(opt.dataset.i);
+      opts.forEach(o => { o.classList.remove('correct', 'wrong'); o.disabled = false; });
+      if (i === correct) {
+        opt.classList.add('correct');
+        fb.className = 'feedback show good';
+        fb.innerHTML = "✓ " + explanations[qIdx][i];
+      } else {
+        opt.classList.add('wrong');
+        opts[correct].classList.add('correct');
+        fb.className = 'feedback show bad';
+        fb.innerHTML = "✗ " + explanations[qIdx][i] + "<br><br>The right answer is highlighted in green.";
+      }
+    }));
+  });
+</script>
+</body>
+</html>

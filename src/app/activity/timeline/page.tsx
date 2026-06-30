@@ -29,8 +29,23 @@ import {
   ChevronsUpDown,
   ZoomIn,
   ZoomOut,
+  HelpCircle,
+  Calendar as CalendarIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RTooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts";
 import { useState, useMemo, useRef, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import Image from "next/image";
@@ -85,6 +100,12 @@ const ACTIVITY_COLORS: Record<string, string> = {
   browser_local: "#22c55e",
   browser_staging: "#f59e0b",
   browser_prod: "#a855f7",
+  browser_email: "#ea4335",
+  browser_docs: "#4285f4",
+  browser_figma: "#a259ff",
+  browser_linear: "#5e6ad2",
+  browser_webflow: "#4353ff",
+  browser_workflow: "#14b8a6",
   xcode: "#06b6d4",
   slack: "#e11d48",
   cc_turn: "#8b5cf6",
@@ -97,15 +118,39 @@ const ACTIVITY_LABELS: Record<string, string> = {
   browser_local: "Browser (Local)",
   browser_staging: "Browser (Staging)",
   browser_prod: "Browser (Prod)",
+  browser_email: "Gmail",
+  browser_docs: "Google Docs",
+  browser_figma: "Figma",
+  browser_linear: "Linear",
+  browser_webflow: "Webflow",
+  browser_workflow: "Workflow",
   xcode: "Xcode",
   slack: "Slack",
-  cc_turn: "CC Turn",
+  cc_turn: "Claude Code",
   meeting: "Meeting",
   other: "Other",
 };
 
 // CC turns use a lighter/darker variant of the project color
 const CC_SOURCE_TYPES = new Set(["cc_turn"]);
+
+const ACTIVITY_ICON_SRCS: Record<string, string> = {
+  coding: "/icons/terminal.svg",
+  browser_local: "/icons/chrome.png",
+  browser_staging: "/icons/chrome.png",
+  browser_prod: "/icons/chrome.png",
+  browser_email: "/icons/gmail.ico",
+  browser_docs: "/icons/gdocs.ico",
+  browser_figma: "/icons/figma.png",
+  browser_linear: "/icons/linear.ico",
+  browser_webflow: "/icons/webflow.ico",
+  browser_workflow: "/icons/chrome.png",
+
+  xcode: "/icons/xcode.png",
+  slack: "/icons/slack.png",
+  cc_turn: "/icons/claude.ico",
+  meeting: "/icons/zoom.ico",
+};
 
 const ROW_HEIGHT = 36;
 const LABEL_WIDTH = 180;
@@ -211,40 +256,110 @@ function getBlockColor(snapshot: SnapshotRow, configs: Record<string, ProjectCon
 }
 
 // ──────────────────────────────────────────────
+// Rollup helpers (Week / Month aggregation)
+// ──────────────────────────────────────────────
+
+const FALLBACK_COLORS = [
+  "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#ef4444",
+  "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#6366f1",
+  "#14b8a6", "#f43f5e", "#8b5cf6", "#10b981", "#0ea5e9",
+];
+
+function resolveProjectColor(config: ProjectConfig | undefined, fallback: string): string {
+  if (config?.color) return hslToHex(config.color) || fallback;
+  return fallback;
+}
+
+function faviconUrl(config: ProjectConfig | undefined): string | null {
+  if (!config?.favicon) return null;
+  return `/api/favicon?path=${encodeURIComponent(config.favicon)}`;
+}
+
+function formatHours(minutes: number): string {
+  const h = minutes / 60;
+  if (h >= 10) return `${h.toFixed(1)}h`;
+  if (h >= 1) return `${h.toFixed(2)}h`;
+  return `${Math.round(minutes)}m`;
+}
+
+function formatDayShort(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function addDays(dateStr: string, n: number): string {
+  const d = new Date(dateStr + "T12:00:00");
+  d.setDate(d.getDate() + n);
+  return toDateString(d);
+}
+
+function eachDay(startStr: string, endStr: string): string[] {
+  const out: string[] = [];
+  const end = new Date(endStr + "T12:00:00").getTime();
+  let d = new Date(startStr + "T12:00:00");
+  while (d.getTime() <= end) {
+    out.push(toDateString(d));
+    d = new Date(d.getTime());
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+function hostname(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url.replace(/^https?:\/\//, "").split("/")[0] || url;
+  }
+}
+
+// ──────────────────────────────────────────────
 // Tooltip
 // ──────────────────────────────────────────────
 
+function ActivityIcon({ type, size = 16 }: { type: string; size?: number }) {
+  const src = ACTIVITY_ICON_SRCS[type];
+  if (!src) return <HelpCircle style={{ width: size, height: size }} className="text-muted-foreground" />;
+  return <img src={src} alt="" width={size} height={size} className="shrink-0" style={{ width: size, height: size }} />;
+}
+
+function getTooltipDetails(snapshot: SnapshotRow): string[] {
+  const lines: string[] = [];
+  const type = snapshot.activityType;
+  const isCC = type === "cc_turn";
+
+  // URL for browser types
+  if (type.startsWith("browser_") && snapshot.url) {
+    lines.push(snapshot.url);
+  }
+
+  // Window title for non-CC types (strip browser/app suffixes)
+  if (!isCC && snapshot.windowTitle) {
+    let title = snapshot.windowTitle;
+    // Strip " - Google Chrome - Profile" / " - Slack" / " - Zoom" etc
+    title = title.replace(/\s*[-–—]\s*(Google Chrome|Brave|Safari|Arc|Slack|Zoom).*$/i, "");
+    if (title) lines.push(title);
+  }
+
+  return lines;
+}
+
 function BlockTooltip({ snapshot, style }: { snapshot: SnapshotRow; style: React.CSSProperties }) {
+  const details = getTooltipDetails(snapshot);
   return (
     <div
-      className="absolute z-50 bg-popover text-popover-foreground border rounded-md shadow-md p-2 text-xs space-y-1 pointer-events-none w-64"
+      className="fixed z-[100] bg-popover text-popover-foreground border rounded-md shadow-md p-1.5 text-xs space-y-0.5 pointer-events-none max-w-52"
       style={style}
     >
-      <div className="font-medium">{formatTime(snapshot.timestamp)}</div>
-      <div className="flex justify-between">
-        <span className="text-muted-foreground">Duration</span>
-        <span>{formatDuration(snapshot.durationSeconds)}</span>
+      <div className="flex items-center gap-1.5">
+        <ActivityIcon type={snapshot.activityType} size={16} />
+        <span className="text-muted-foreground">{formatDuration(snapshot.durationSeconds)}</span>
       </div>
-      <div className="flex justify-between">
-        <span className="text-muted-foreground">Type</span>
-        <span>{ACTIVITY_LABELS[snapshot.activityType] || snapshot.activityType}</span>
-      </div>
-      <div className="flex justify-between">
-        <span className="text-muted-foreground">Source</span>
-        <span>{snapshot.source === "cc_transcript" ? "CC Transcript" : "Window Tracker"}</span>
-      </div>
-      <div className="flex justify-between gap-2">
-        <span className="text-muted-foreground shrink-0">App</span>
-        <span className="truncate text-right">{snapshot.app}</span>
-      </div>
-      {snapshot.windowTitle && (
-        <div className="text-muted-foreground truncate">{snapshot.windowTitle}</div>
-      )}
+      {details.map((line, i) => (
+        <div key={i} className="text-muted-foreground truncate">{line}</div>
+      ))}
       {snapshot.ccUserChars > 0 && (
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">User chars</span>
-          <span>{snapshot.ccUserChars.toLocaleString()}</span>
-        </div>
+        <div className="text-muted-foreground">{snapshot.ccUserChars.toLocaleString()} chars</div>
       )}
     </div>
   );
@@ -283,6 +398,7 @@ function TimelineRow({
   configs,
   hoveredId,
   setHoveredId,
+  setHoveredSnapshot,
   hoveredRow,
   setHoveredRow,
   timelineWidth,
@@ -292,6 +408,7 @@ function TimelineRow({
   configs: Record<string, ProjectConfig>;
   hoveredId: number | null;
   setHoveredId: (id: number | null) => void;
+  setHoveredSnapshot: (info: { snapshot: SnapshotRow; rect: DOMRect } | null) => void;
   hoveredRow: string | null;
   setHoveredRow: (id: string | null) => void;
   timelineWidth: number;
@@ -340,16 +457,15 @@ function TimelineRow({
               outline: isHovered ? "2px solid var(--foreground)" : undefined,
               outlineOffset: -1,
             }}
-            onMouseEnter={() => setHoveredId(snapshot.id)}
-            onMouseLeave={() => setHoveredId(null)}
-          >
-            {isHovered && (
-              <BlockTooltip
-                snapshot={snapshot}
-                style={{ top: ROW_HEIGHT - 2, left: 0 }}
-              />
-            )}
-          </div>
+            onMouseEnter={(e) => {
+              setHoveredId(snapshot.id);
+              setHoveredSnapshot({ snapshot, rect: e.currentTarget.getBoundingClientRect() });
+            }}
+            onMouseLeave={() => {
+              setHoveredId(null);
+              setHoveredSnapshot(null);
+            }}
+          />
         );
       })}
     </div>
@@ -419,6 +535,77 @@ function ProjectCombobox({
 }
 
 // ──────────────────────────────────────────────
+// Single-day picker (zero-dep calendar popover)
+// ──────────────────────────────────────────────
+
+function DayPicker({ value, label, onSelect }: {
+  value: string;            // YYYY-MM-DD (selected / anchor day)
+  label: string;            // text shown on the trigger
+  onSelect: (d: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const sel = useMemo(() => new Date(value + "T12:00:00"), [value]);
+  const [viewMonth, setViewMonth] = useState(() => new Date(sel.getFullYear(), sel.getMonth(), 1));
+  const todayStr = toDateString(new Date());
+
+  const year = viewMonth.getFullYear();
+  const month = viewMonth.getMonth();
+  const startWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: (string | null)[] = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(toDateString(new Date(year, month, d)));
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setViewMonth(new Date(sel.getFullYear(), sel.getMonth(), 1)); }}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-7 px-2 text-sm font-medium min-w-[180px] justify-center gap-1.5">
+          <CalendarIcon className="h-3.5 w-3.5 opacity-60 shrink-0" />
+          <span className="truncate">{label}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-3" align="center">
+        <div className="flex items-center justify-between mb-2">
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setViewMonth(new Date(year, month - 1, 1))}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="text-sm font-medium">
+            {viewMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+          </span>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setViewMonth(new Date(year, month + 1, 1))}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="grid grid-cols-7 gap-0.5 text-center">
+          {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+            <div key={i} className="text-[10px] text-muted-foreground py-1">{d}</div>
+          ))}
+          {cells.map((c, i) => c === null ? <div key={i} /> : (
+            <button
+              key={i}
+              onClick={() => { onSelect(c); setOpen(false); }}
+              className={cn(
+                "h-7 w-7 rounded-md text-xs tabular-nums hover:bg-muted transition-colors",
+                c === value && "bg-primary text-primary-foreground hover:bg-primary",
+                c === todayStr && c !== value && "border border-border font-medium",
+              )}
+            >
+              {Number(c.slice(-2))}
+            </button>
+          ))}
+        </div>
+        <div className="mt-2 flex justify-center">
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs"
+            onClick={() => { onSelect(todayStr); setOpen(false); }}>
+            Today
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ──────────────────────────────────────────────
 // Main page inner
 // ──────────────────────────────────────────────
 
@@ -431,11 +618,17 @@ function TimelinePageInner() {
   const date = searchParams.get("date") || today;
   const orgFilter = searchParams.get("org") || "all";
   const projectFilter = searchParams.get("project") || "all";
+  const view = (searchParams.get("view") as "day" | "week" | "month") || "day";
+  const windowDays = view === "week" ? 7 : view === "month" ? 30 : 1;
+  const periodEnd = date;
+  const periodStart = windowDays === 1 ? date : addDays(date, -(windowDays - 1));
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
+  const [hoveredSnapshot, setHoveredSnapshot] = useState<{ snapshot: SnapshotRow; rect: DOMRect } | null>(null);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX);
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
 
   const pxPerMin = ZOOM_LEVELS[zoomIndex];
   const timelineWidth = pxPerMin * 1440; // 1440 minutes in a day
@@ -443,7 +636,11 @@ function TimelinePageInner() {
   const updateParam = useCallback(
     (key: string, value: string) => {
       const params = new URLSearchParams(searchParams.toString());
-      if ((key === "date" && value === today) || (key !== "date" && value === "all")) {
+      if (
+        (key === "date" && value === today) ||
+        (key === "view" && value === "day") ||
+        (key !== "date" && key !== "view" && value === "all")
+      ) {
         params.delete(key);
       } else {
         params.set(key, value);
@@ -454,18 +651,17 @@ function TimelinePageInner() {
     [searchParams, router, pathname, today]
   );
 
-  function prevDay() {
-    const d = new Date(date + "T12:00:00");
-    d.setDate(d.getDate() - 1);
-    updateParam("date", toDateString(d));
+  function prevPeriod() {
+    updateParam("date", addDays(date, -windowDays));
   }
-  function nextDay() {
-    const d = new Date(date + "T12:00:00");
-    d.setDate(d.getDate() + 1);
-    updateParam("date", toDateString(d));
+  function nextPeriod() {
+    updateParam("date", addDays(date, windowDays));
   }
   function goToday() {
     updateParam("date", today);
+  }
+  function setView(v: "day" | "week" | "month") {
+    updateParam("view", v);
   }
 
   function zoomIn() {
@@ -547,10 +743,16 @@ function TimelinePageInner() {
   // Day start timestamp (midnight local time)
   const dayStart = useMemo(() => new Date(date + "T00:00:00").getTime(), [date]);
 
+  // Filter snapshots by visible activity types
+  const visibleSnapshots = useMemo(() => {
+    if (hiddenTypes.size === 0) return snapshots;
+    return snapshots.filter((s) => !hiddenTypes.has(s.activityType));
+  }, [snapshots, hiddenTypes]);
+
   // Group snapshots into project rows
   const rows = useMemo(() => {
     const map: Record<string, ProjectRow> = {};
-    for (const s of snapshots) {
+    for (const s of visibleSnapshots) {
       const key = s.projectId || "__unmatched__";
       if (!map[key]) {
         map[key] = {
@@ -573,16 +775,16 @@ function TimelinePageInner() {
       return b.totalMinutes - a.totalMinutes;
     });
     return result;
-  }, [snapshots, projectNames]);
+  }, [visibleSnapshots, projectNames]);
 
   // Auto-scroll to first activity on load
   useEffect(() => {
-    if (snapshots.length === 0 || !scrollRef.current) return;
-    const earliest = Math.min(...snapshots.map((s) => s.timestamp));
+    if (visibleSnapshots.length === 0 || !scrollRef.current) return;
+    const earliest = Math.min(...visibleSnapshots.map((s) => s.timestamp));
     const offsetSec = (earliest - dayStart) / 1000;
     const scrollTo = Math.max(0, (offsetSec / DAY_SECONDS) * timelineWidth - 100);
     scrollRef.current.scrollLeft = scrollTo;
-  }, [snapshots, dayStart, timelineWidth]);
+  }, [visibleSnapshots, dayStart, timelineWidth]);
 
   const isToday = date === today;
 
@@ -599,46 +801,63 @@ function TimelinePageInner() {
     <div className="space-y-3">
       {/* Day nav + filters + zoom */}
       <div className="flex items-center gap-2 flex-wrap">
+        {/* View toggle: Day / Week / Month */}
+        <div className="flex items-center gap-0.5">
+          {(["day", "week", "month"] as const).map((v) => (
+            <Button key={v} variant={view === v ? "default" : "ghost"} size="sm"
+              className="h-7 px-2 text-xs capitalize" onClick={() => setView(v)}>
+              {v}
+            </Button>
+          ))}
+        </div>
+
+        {/* Period nav */}
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={prevDay}>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={prevPeriod}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="text-sm font-medium min-w-[180px] text-center">
-            {formatDateLabel(date)}
-          </span>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={nextDay}>
+          <DayPicker
+            value={date}
+            label={view === "day"
+              ? formatDateLabel(date)
+              : `${formatDayShort(periodStart)} – ${formatDayShort(periodEnd)}`}
+            onSelect={(d) => updateParam("date", d)}
+          />
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={nextPeriod}>
             <ChevronRight className="h-4 w-4" />
           </Button>
           {!isToday && (
             <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={goToday}>
-              Today
+              {view === "day" ? "Today" : "Now"}
             </Button>
           )}
         </div>
 
-        <div className="flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={zoomOut}
-            disabled={zoomIndex === 0}
-          >
-            <ZoomOut className="h-3.5 w-3.5" />
-          </Button>
-          <span className="text-[10px] text-muted-foreground w-6 text-center tabular-nums">
-            {zoomLabel}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={zoomIn}
-            disabled={zoomIndex === ZOOM_LEVELS.length - 1}
-          >
-            <ZoomIn className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        {view === "day" && (
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={zoomOut}
+              disabled={zoomIndex === 0}
+            >
+              <ZoomOut className="h-3.5 w-3.5" />
+            </Button>
+            <span className="text-[10px] text-muted-foreground w-6 text-center tabular-nums">
+              {zoomLabel}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={zoomIn}
+              disabled={zoomIndex === ZOOM_LEVELS.length - 1}
+            >
+              <ZoomIn className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
 
         <Select value={orgFilter} onValueChange={(v) => updateParam("org", v)}>
           <SelectTrigger className="w-[140px] h-7 text-xs">
@@ -658,44 +877,73 @@ function TimelinePageInner() {
           projects={filteredProjects}
         />
 
-        <span className="text-xs text-muted-foreground ml-auto">
-          {snapshots.length > 0 ? `${snapshots.length} entries` : ""}
-        </span>
+        {view === "day" && (
+          <span className="text-xs text-muted-foreground ml-auto">
+            {snapshots.length > 0
+              ? hiddenTypes.size > 0
+                ? `${visibleSnapshots.length} / ${snapshots.length} entries`
+                : `${snapshots.length} entries`
+              : ""}
+          </span>
+        )}
       </div>
 
-      {/* Legend */}
-      {activeTypes.length > 0 && (
-        <div className="flex items-center gap-3 flex-wrap text-xs">
+      {/* Activity type filters */}
+      {view === "day" && activeTypes.length > 0 && (
+        <div className="flex items-center gap-1 flex-wrap text-xs">
+          <span className="text-muted-foreground text-[10px] uppercase tracking-wider mr-1">Display</span>
           {activeTypes.map((type) => {
             const baseColor = ACTIVITY_COLORS[type] || ACTIVITY_COLORS.other;
-            const isCC = CC_SOURCE_TYPES.has(type);
+            const isHidden = hiddenTypes.has(type);
             return (
-              <span key={type} className="inline-flex items-center gap-1">
-                <span
-                  className="inline-block h-2.5 w-2.5 rounded-sm"
-                  style={{ backgroundColor: isCC ? adjustColor(baseColor, 50) : baseColor }}
-                />
-                <span className="text-muted-foreground">{ACTIVITY_LABELS[type] || type}</span>
-                {isCC && <span className="text-muted-foreground/60 text-[10px]">(lighter)</span>}
-              </span>
+              <button
+                key={type}
+                onClick={() => {
+                  setHiddenTypes((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(type)) next.delete(type);
+                    else next.add(type);
+                    return next;
+                  });
+                }}
+                className={cn(
+                  "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all",
+                  isHidden
+                    ? "border-border text-muted-foreground/40 bg-transparent opacity-40"
+                    : "border-transparent text-foreground"
+                )}
+                style={!isHidden ? { backgroundColor: baseColor + "18", borderColor: baseColor + "40" } : undefined}
+              >
+                <ActivityIcon type={type} size={14} />
+                <span>{ACTIVITY_LABELS[type] || type}</span>
+              </button>
             );
           })}
         </div>
       )}
 
-      {/* Timeline */}
-      {loading ? (
+      {/* Week / Month rollup — same snapshot data, aggregated wider */}
+      {view !== "day" ? (
+        <PeriodRollup
+          startDate={periodStart}
+          endDate={periodEnd}
+          org={orgFilter}
+          projectFilter={projectFilter}
+          projectNames={projectNames}
+          configs={configs}
+        />
+      ) : /* Timeline */ loading ? (
         <div className="text-center text-muted-foreground py-12 text-sm">Loading...</div>
       ) : rows.length === 0 ? (
         <div className="text-center text-muted-foreground py-12 text-sm">
           No activity for {formatDateLabel(date)}
         </div>
       ) : (
-        <div className="border rounded-md bg-card overflow-hidden">
-          <div className="flex">
+        <div className="border rounded-md bg-card overflow-x-auto" ref={scrollRef}>
+          <div className="flex w-fit">
             {/* Left labels column — sticky */}
             <div
-              className="shrink-0 border-r border-border bg-card z-20"
+              className="shrink-0 border-r border-border bg-card z-10"
               style={{ width: LABEL_WIDTH, position: "sticky", left: 0 }}
             >
               {/* Header */}
@@ -741,28 +989,398 @@ function TimelinePageInner() {
               })}
             </div>
 
-            {/* Scrollable timeline area */}
-            <div ref={scrollRef} className="overflow-x-auto flex-1">
-              <div style={{ width: timelineWidth }}>
-                <HourMarkers timelineWidth={timelineWidth} />
-                {rows.map((row) => (
-                  <TimelineRow
-                    key={row.projectId || "__unmatched__"}
-                    row={row}
-                    dayStart={dayStart}
-                    configs={configs}
-                    hoveredId={hoveredId}
-                    setHoveredId={setHoveredId}
-                    hoveredRow={hoveredRow}
-                    setHoveredRow={setHoveredRow}
-                    timelineWidth={timelineWidth}
-                  />
-                ))}
-              </div>
+            {/* Timeline area */}
+            <div style={{ width: timelineWidth }}>
+              <HourMarkers timelineWidth={timelineWidth} />
+              {rows.map((row) => (
+                <TimelineRow
+                  key={row.projectId || "__unmatched__"}
+                  row={row}
+                  dayStart={dayStart}
+                  configs={configs}
+                  hoveredId={hoveredId}
+                  setHoveredId={setHoveredId}
+                  setHoveredSnapshot={setHoveredSnapshot}
+                  hoveredRow={hoveredRow}
+                  setHoveredRow={setHoveredRow}
+                  timelineWidth={timelineWidth}
+                />
+              ))}
             </div>
           </div>
         </div>
       )}
+
+      {/* Tooltip rendered outside all containers, fixed to viewport */}
+      {hoveredSnapshot && (
+        <BlockTooltip
+          snapshot={hoveredSnapshot.snapshot}
+          style={{
+            top: hoveredSnapshot.rect.bottom + 4,
+            left: hoveredSnapshot.rect.left,
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Rollup (Week / Month) — same snapshot data as the gantt, aggregated wider
+// ──────────────────────────────────────────────
+
+interface DailyProjRow { day: string; projectId: string | null; minutes: number; entries: number }
+interface TypeRow { activityType: string; minutes: number; entries: number }
+interface AppRow { app: string; minutes: number; entries: number }
+interface UrlRow { url: string; minutes: number; entries: number }
+
+function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <Card>
+      <CardContent className="pt-5 pb-4">
+        <p className="text-xs text-muted-foreground mb-1">{label}</p>
+        <p className="text-2xl font-semibold tabular-nums">{value}</p>
+        {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RollupBarTooltip({ active, payload, label }: {
+  active?: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload?: ReadonlyArray<any>;
+  label?: string | number;
+}) {
+  if (!active || !payload?.length) return null;
+  const visible = [...payload].filter((p) => p.value > 0).sort((a, b) => b.value - a.value);
+  const total = visible.reduce((s, p) => s + p.value, 0);
+  return (
+    <div className="rounded-lg border bg-background p-2.5 shadow-md text-xs space-y-1 min-w-[140px]">
+      <p className="font-medium mb-1.5">{label}</p>
+      {visible.slice(0, 10).map((p) => (
+        <div key={p.dataKey} className="flex items-center justify-between gap-4">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-2 rounded-sm shrink-0" style={{ background: p.color }} />
+            <span className="text-muted-foreground truncate max-w-[120px]">{p.name}</span>
+          </span>
+          <span className="font-mono font-medium">{formatHours(p.value)}</span>
+        </div>
+      ))}
+      {visible.length > 1 && (
+        <div className="flex justify-between pt-1 border-t mt-1">
+          <span className="text-muted-foreground">Total</span>
+          <span className="font-mono font-medium">{formatHours(total)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RollupPieTooltip({ active, payload }: {
+  active?: boolean;
+  payload?: Array<{ name: string; value: number; payload: { pct: number } }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0];
+  return (
+    <div className="rounded-lg border bg-background p-2.5 shadow-md text-xs">
+      <p className="font-medium">{p.name}</p>
+      <p className="font-mono mt-0.5">{formatHours(p.value)}</p>
+      <p className="text-muted-foreground">{(p.payload.pct * 100).toFixed(1)}%</p>
+    </div>
+  );
+}
+
+function MiniTable({ title, desc, rows, empty }: {
+  title: string; desc: string; empty: string;
+  rows: { name: string; entries: number; minutes: number }[];
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <CardDescription className="text-xs">{desc}</CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        {rows.length === 0 ? (
+          <p className="py-6 text-center text-muted-foreground text-xs">{empty}</p>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left font-medium text-muted-foreground py-2 pl-6 pr-3">{title.replace("Top ", "")}</th>
+                <th className="text-right font-medium text-muted-foreground py-2 px-3">Entries</th>
+                <th className="text-right font-medium text-muted-foreground py-2 pl-3 pr-6">Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.name} className="border-b last:border-0 hover:bg-muted/40 transition-colors">
+                  <td className="py-2 pl-6 pr-3 font-medium truncate max-w-[220px]">{r.name}</td>
+                  <td className="py-2 px-3 text-right font-mono text-muted-foreground">{r.entries}</td>
+                  <td className="py-2 pl-3 pr-6 text-right font-mono">{formatHours(r.minutes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PieWithLegend({ title, desc, data, withFavicons, configs }: {
+  title: string; desc: string;
+  data: { name: string; value: number; color: string; pct: number; id?: string }[];
+  withFavicons?: boolean;
+  configs?: Record<string, ProjectConfig>;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <CardDescription className="text-xs">{desc}</CardDescription>
+      </CardHeader>
+      <CardContent className="pb-4">
+        {data.length === 0 ? (
+          <p className="py-8 text-center text-muted-foreground text-xs">No data.</p>
+        ) : (
+          <>
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie data={data} cx="50%" cy="50%" innerRadius="52%" outerRadius="78%"
+                  paddingAngle={2} dataKey="value" strokeWidth={0}>
+                  {data.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                </Pie>
+                <RTooltip content={<RollupPieTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="flex flex-col gap-1.5 mt-1">
+              {data.slice(0, 12).map((entry) => {
+                const fav = withFavicons && entry.id && configs ? faviconUrl(configs[entry.id]) : null;
+                return (
+                  <div key={entry.name} className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      {fav ? (
+                        <Image src={fav} alt="" width={12} height={12} className="shrink-0 rounded-sm" unoptimized />
+                      ) : (
+                        <span className="inline-block h-2 w-2 rounded-sm shrink-0" style={{ background: entry.color }} />
+                      )}
+                      <span className="truncate max-w-[150px]">{entry.name}</span>
+                    </span>
+                    <span className="font-mono text-muted-foreground">{(entry.pct * 100).toFixed(1)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PeriodRollup({
+  startDate, endDate, org, projectFilter, projectNames, configs,
+}: {
+  startDate: string;
+  endDate: string;
+  org: string;
+  projectFilter: string;
+  projectNames: Record<string, string>;
+  configs: Record<string, ProjectConfig>;
+}) {
+  const base: Record<string, string> = { startDate, endDate };
+  if (org !== "all") base.org = org;
+  if (projectFilter !== "all") base.projectId = projectFilter;
+  // "all projects" view = project-attributed time only (exclude Unmatched), matching
+  // the user's per-project intent. Drop this line to fold Unmatched activity back in.
+  if (projectFilter === "all") base.assigned = "1";
+
+  const { data: dailyData, loading: l1 } = useDbQuery<{ success: boolean; data: DailyProjRow[] }>(
+    "/api/db/activity-snapshots", { ...base, byDay: "1", groupBy: "projectId" }
+  );
+  const { data: typeData, loading: l2 } = useDbQuery<{ success: boolean; data: TypeRow[] }>(
+    "/api/db/activity-snapshots", { ...base, groupBy: "activityType" }
+  );
+  const { data: appData } = useDbQuery<{ success: boolean; data: AppRow[] }>(
+    "/api/db/activity-snapshots", { ...base, groupBy: "app" }
+  );
+  const { data: urlData } = useDbQuery<{ success: boolean; data: UrlRow[] }>(
+    "/api/db/activity-snapshots", { ...base, groupBy: "url" }
+  );
+
+  const dailyRows = useMemo(() => (dailyData?.data || []).filter((r) => r.projectId), [dailyData]);
+  const typeRows = useMemo(() => typeData?.data || [], [typeData]);
+  const days = useMemo(() => eachDay(startDate, endDate), [startDate, endDate]);
+
+  const projectTotals = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of dailyRows) m[r.projectId!] = (m[r.projectId!] || 0) + r.minutes;
+    return m;
+  }, [dailyRows]);
+
+  const projectsSorted = useMemo(() =>
+    Object.keys(projectTotals)
+      .map((id) => ({ id, name: projectNames[id] || id.slice(0, 8), value: projectTotals[id] }))
+      .sort((a, b) => b.value - a.value),
+    [projectTotals, projectNames]
+  );
+
+  const projectColors = useMemo(() => {
+    const m: Record<string, string> = {};
+    projectsSorted.forEach(({ id }, i) => {
+      m[id] = resolveProjectColor(configs[id], FALLBACK_COLORS[i % FALLBACK_COLORS.length]);
+    });
+    return m;
+  }, [projectsSorted, configs]);
+
+  const barData = useMemo(() => {
+    const byDay: Record<string, Record<string, number>> = {};
+    for (const r of dailyRows) {
+      if (!byDay[r.day]) byDay[r.day] = {};
+      byDay[r.day][r.projectId!] = (byDay[r.day][r.projectId!] || 0) + r.minutes;
+    }
+    return days.map((d) => {
+      const e: Record<string, number | string> = { date: formatDayShort(d) };
+      for (const { id } of projectsSorted) e[id] = byDay[d]?.[id] || 0;
+      return e;
+    });
+  }, [dailyRows, days, projectsSorted]);
+
+  const projectPie = useMemo(() => {
+    const total = projectsSorted.reduce((s, p) => s + p.value, 0);
+    return projectsSorted.filter((p) => p.value > 0).map((p, i) => ({
+      name: p.name, value: p.value, id: p.id,
+      color: projectColors[p.id] || FALLBACK_COLORS[i % FALLBACK_COLORS.length],
+      pct: total > 0 ? p.value / total : 0,
+    }));
+  }, [projectsSorted, projectColors]);
+
+  const catTotals = useMemo(() => {
+    let cc = 0, browser = 0, slack = 0, xcode = 0, other = 0, total = 0;
+    for (const r of typeRows) {
+      total += r.minutes;
+      if (r.activityType === "cc_turn") cc += r.minutes;
+      else if (r.activityType.startsWith("browser_")) browser += r.minutes;
+      else if (r.activityType === "slack") slack += r.minutes;
+      else if (r.activityType === "xcode") xcode += r.minutes;
+      else other += r.minutes;
+    }
+    return { cc, browser, slack, xcode, other, total };
+  }, [typeRows]);
+
+  const typePie = useMemo(() => {
+    const total = typeRows.reduce((s, r) => s + r.minutes, 0);
+    return [...typeRows]
+      .filter((r) => r.minutes > 0)
+      .sort((a, b) => b.minutes - a.minutes)
+      .map((r) => ({
+        name: ACTIVITY_LABELS[r.activityType] || r.activityType,
+        value: r.minutes,
+        color: ACTIVITY_COLORS[r.activityType] || ACTIVITY_COLORS.other,
+        pct: total > 0 ? r.minutes / total : 0,
+      }));
+  }, [typeRows]);
+
+  const topApps = useMemo(() =>
+    (appData?.data || [])
+      .map((r) => ({ name: (r.app || "").trim(), minutes: r.minutes, entries: r.entries }))
+      .filter((r) => r.name !== "")
+      .sort((a, b) => b.minutes - a.minutes)
+      .slice(0, 12),
+    [appData]
+  );
+
+  const topSites = useMemo(() => {
+    const m = new Map<string, { minutes: number; entries: number }>();
+    for (const r of (urlData?.data || [])) {
+      const u = (r.url || "").trim();
+      if (!u) continue;
+      const h = hostname(u);
+      const cur = m.get(h) || { minutes: 0, entries: 0 };
+      cur.minutes += r.minutes; cur.entries += r.entries;
+      m.set(h, cur);
+    }
+    return [...m.entries()].map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.minutes - a.minutes).slice(0, 12);
+  }, [urlData]);
+
+  const pctOf = (x: number) => (catTotals.total > 0 ? `${Math.round((100 * x) / catTotals.total)}%` : "0%");
+  const tickInterval = days.length > 14 ? Math.floor(days.length / 10) : 0;
+  const loading = l1 || l2;
+
+  if (loading && dailyRows.length === 0 && typeRows.length === 0) {
+    return <div className="text-center text-muted-foreground py-12 text-sm">Loading…</div>;
+  }
+  if (!loading && dailyRows.length === 0 && typeRows.length === 0) {
+    return <div className="text-center text-muted-foreground py-12 text-sm">No activity for this period.</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Tracked Time" value={formatHours(catTotals.total)}
+          sub={`across ${projectsSorted.length} project${projectsSorted.length !== 1 ? "s" : ""}`} />
+        <StatCard label="Claude Code" value={formatHours(catTotals.cc)} sub={`${pctOf(catTotals.cc)} of tracked`} />
+        <StatCard label="Browser" value={formatHours(catTotals.browser)} sub={`${pctOf(catTotals.browser)} of tracked`} />
+        <StatCard label="Slack + Other" value={formatHours(catTotals.slack + catTotals.xcode + catTotals.other)}
+          sub={`${pctOf(catTotals.slack + catTotals.xcode + catTotals.other)} of tracked`} />
+      </div>
+
+      {/* Per-day stacked bar (by project) + project donut */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_300px] lg:items-stretch">
+        <Card className="flex flex-col">
+          <CardHeader className="pb-2 shrink-0">
+            <CardTitle className="text-sm font-medium">Activity Over Time</CardTitle>
+            <CardDescription className="text-xs">Tracked time per day, stacked by project</CardDescription>
+          </CardHeader>
+          <CardContent className="pb-4 flex flex-col flex-1 min-h-0">
+            <div className="flex-1 min-h-[240px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={barData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} interval={tickInterval} />
+                  <YAxis tickFormatter={(v) => formatHours(v)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+                  <RTooltip content={<RollupBarTooltip />} />
+                  {projectsSorted.map(({ id, name }, i) => (
+                    <Bar key={id} dataKey={id} name={name} stackId="a" fill={projectColors[id]}
+                      radius={i === projectsSorted.length - 1 ? [2, 2, 0, 0] : [0, 0, 0, 0]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            {projectsSorted.length > 0 && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 justify-center shrink-0">
+                {projectsSorted.slice(0, 12).map(({ id, name }) => {
+                  const fav = faviconUrl(configs[id]);
+                  return (
+                    <span key={id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      {fav ? (
+                        <Image src={fav} alt="" width={12} height={12} className="shrink-0 rounded-sm" unoptimized />
+                      ) : (
+                        <span className="inline-block h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: projectColors[id] }} />
+                      )}
+                      {name}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <PieWithLegend title="Project Share" desc="By project for period" data={projectPie} withFavicons configs={configs} />
+      </div>
+
+      {/* Activity-type donut + drill-downs */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr_1fr]">
+        <PieWithLegend title="Activity Types" desc="By app / activity for period" data={typePie} />
+        <MiniTable title="Top Apps" desc="Most-used apps for this period" rows={topApps} empty="No app data." />
+        <MiniTable title="Top Sites" desc="Most-visited sites for this period" rows={topSites} empty="No browsing data." />
+      </div>
     </div>
   );
 }

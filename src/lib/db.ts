@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import fs from "fs";
 import path from "path";
 import os from "os";
 
@@ -8,7 +9,6 @@ let _db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
   if (!_db) {
-    const fs = require("fs");
     fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
     _db = new Database(DB_PATH);
     _db.pragma("journal_mode = WAL");
@@ -207,6 +207,45 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_kb_project ON knowledgeBase(projectId);
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS assignmentQueue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      clusterKey TEXT NOT NULL UNIQUE,      -- stable signature: day::app::host|app
+      day TEXT NOT NULL,
+      app TEXT NOT NULL,
+      urlHost TEXT NOT NULL DEFAULT '',
+      sampleTitle TEXT NOT NULL DEFAULT '',
+      sampleUrl TEXT NOT NULL DEFAULT '',
+      snapshotIds TEXT NOT NULL DEFAULT '[]',   -- JSON array of activitySnapshots.id
+      startTs INTEGER NOT NULL,
+      endTs INTEGER NOT NULL,
+      minutes REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',   -- pending | suggested | applied | rejected
+      suggestedProjectId TEXT,
+      confidence REAL,
+      reason TEXT NOT NULL DEFAULT '',
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      resolvedAt INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_assignmentQueue_status ON assignmentQueue(status);
+    CREATE INDEX IF NOT EXISTS idx_assignmentQueue_day ON assignmentQueue(day);
+
+    CREATE TABLE IF NOT EXISTS calendarEvents (
+      id TEXT PRIMARY KEY,                         -- stable: calendarId::eventId
+      calendarId TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT '',
+      startTs INTEGER NOT NULL,
+      endTs INTEGER NOT NULL,
+      attendees TEXT NOT NULL DEFAULT '',          -- joined names/emails, for matching
+      location TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'connector',    -- connector | ical
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_calendarEvents_time ON calendarEvents(startTs, endTs);
+  `);
+
   // Migrations — add columns that may not exist yet
   const migrations = [
     "ALTER TABLE projects ADD COLUMN prodUrl TEXT NOT NULL DEFAULT ''",
@@ -243,6 +282,10 @@ function initSchema(db: Database.Database) {
     "ALTER TABLE ccSessionStats ADD COLUMN isAutomated INTEGER NOT NULL DEFAULT 0",
     // Backfill: mark CC turns from automated sessions as non-reportable
     "UPDATE activitySnapshots SET reportable = 0 WHERE source = 'cc_transcript' AND ccSessionId IN (SELECT sessionId FROM ccSessionStats WHERE isAutomated = 1)",
+    // Backfill: Claude desktop app is raw app-presence overlapping the real cc_turn signal — non-reportable (like Terminal "coding")
+    "UPDATE activitySnapshots SET reportable = 0 WHERE source = 'window_tracker' AND bundleId = 'com.anthropic.claudefordesktop'",
+    // Backfill: loginwindow = locked screen / idle, not real activity — non-reportable
+    "UPDATE activitySnapshots SET reportable = 0 WHERE source = 'window_tracker' AND bundleId = 'com.apple.loginwindow'",
   ];
   for (const sql of migrations) {
     try { db.exec(sql); } catch { /* column already exists */ }
@@ -433,6 +476,7 @@ export interface SnapshotQueryOpts {
   source?: string;            // "window_tracker" | "cc_transcript"
   activityType?: string;      // "coding" | "browser_local" | "cc_turn" | "slack" | etc.
   unassigned?: boolean;       // true = no projectId
+  assigned?: boolean;         // true = has a projectId (project-attributed only)
   chromeProfile?: string;
   browserCategory?: string;   // "email" | "docs" | "browsing"
   slackWorkspace?: string;
@@ -452,6 +496,7 @@ function buildSnapshotQuery(select: string, opts?: SnapshotQueryOpts): { sql: st
   if (opts?.source) { sql += " AND source = ?"; params.push(opts.source); }
   if (opts?.activityType) { sql += " AND activityType = ?"; params.push(opts.activityType); }
   if (opts?.unassigned) { sql += " AND (projectId IS NULL OR projectId = '')"; }
+  if (opts?.assigned) { sql += " AND projectId IS NOT NULL AND projectId != ''"; }
   if (opts?.chromeProfile) { sql += " AND chromeProfile = ?"; params.push(opts.chromeProfile); }
   if (opts?.browserCategory) { sql += " AND browserCategory = ?"; params.push(opts.browserCategory); }
   if (opts?.slackWorkspace) { sql += " AND slackWorkspace = ?"; params.push(opts.slackWorkspace); }
@@ -516,12 +561,22 @@ export const activitySnapshots = {
     return (db.prepare(sql).get(...params) as { count: number }).count;
   },
 
-  /** Aggregate minutes by a grouping field */
-  summarize(opts?: SnapshotQueryOpts & { groupBy?: string }): Array<Record<string, unknown>> {
+  /** Aggregate minutes by a grouping field. With byDay, also breaks down per local calendar day. */
+  summarize(opts?: SnapshotQueryOpts & { groupBy?: string; byDay?: boolean }): Array<Record<string, unknown>> {
     const db = getDb();
-    const groupCol = opts?.groupBy || "activityType";
+    // Whitelist groupable columns — groupBy is interpolated into SQL, so never trust raw input.
+    const ALLOWED = new Set([
+      "activityType", "projectId", "app", "url", "org", "source",
+      "bundleId", "chromeProfile", "browserCategory", "slackWorkspace",
+    ]);
+    const groupCol = opts?.groupBy && ALLOWED.has(opts.groupBy) ? opts.groupBy : "activityType";
     const { sql: whereSql, params } = buildSnapshotQuery("SELECT 1", opts);
     const whereClause = whereSql.replace(/^SELECT 1 FROM activitySnapshots\s*/i, "");
+    if (opts?.byDay) {
+      const dayExpr = "date(timestamp/1000, 'unixepoch', 'localtime')";
+      const sql = `SELECT ${dayExpr} as day, ${groupCol}, COUNT(*) as entries, round(SUM(durationSeconds)/60.0, 1) as minutes FROM activitySnapshots ${whereClause} GROUP BY day, ${groupCol} ORDER BY day`;
+      return db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+    }
     const sql = `SELECT ${groupCol}, COUNT(*) as entries, round(SUM(durationSeconds)/60.0, 1) as minutes FROM activitySnapshots ${whereClause} GROUP BY ${groupCol} ORDER BY minutes DESC`;
     return db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
   },
@@ -557,6 +612,25 @@ export const activitySnapshots = {
     const db = getDb();
     const result = db.prepare("DELETE FROM activitySnapshots WHERE timestamp < ?").run(cutoffTimestamp);
     return result.changes;
+  },
+
+  /** Assign a batch of snapshots to a project in one transaction (keeps each row's activityType). */
+  assignMany(ids: number[], projectId: string, projectName: string): void {
+    if (ids.length === 0) return;
+    const db = getDb();
+    const stmt = db.prepare("UPDATE activitySnapshots SET projectId = ?, projectName = ? WHERE id = ?");
+    const run = db.transaction((rows: number[]) => {
+      for (const id of rows) stmt.run(projectId, projectName, id);
+    });
+    run(ids);
+  },
+
+  /** Fetch a set of snapshots by id (for applying a queued cluster). */
+  getByIds(ids: number[]): DbSnapshot[] {
+    if (ids.length === 0) return [];
+    const db = getDb();
+    const placeholders = ids.map(() => "?").join(",");
+    return db.prepare(`SELECT * FROM activitySnapshots WHERE id IN (${placeholders})`).all(...ids) as DbSnapshot[];
   },
 };
 
@@ -616,6 +690,165 @@ export const activityDaily = {
 
     sql += " ORDER BY date";
     return db.prepare(sql).all(...params) as DbActivityDaily[];
+  },
+};
+
+// ──────────────────────────────────────────────
+// Assignment Queue (unassigned-activity clusters awaiting classification/review)
+// ──────────────────────────────────────────────
+
+export interface DbAssignmentCluster {
+  id: number;
+  clusterKey: string;
+  day: string;
+  app: string;
+  urlHost: string;
+  sampleTitle: string;
+  sampleUrl: string;
+  snapshotIds: string;       // JSON array
+  startTs: number;
+  endTs: number;
+  minutes: number;
+  status: "pending" | "suggested" | "applied" | "rejected";
+  suggestedProjectId: string | null;
+  confidence: number | null;
+  reason: string;
+  createdAt: number;
+  resolvedAt: number | null;
+}
+
+export const assignmentQueue = {
+  /** Insert/refresh a clustered chunk of unassigned activity. Never resurrects resolved rows. */
+  upsertPending(c: {
+    clusterKey: string; day: string; app: string; urlHost: string;
+    sampleTitle: string; sampleUrl: string; snapshotIds: number[];
+    startTs: number; endTs: number; minutes: number;
+  }): void {
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO assignmentQueue (clusterKey, day, app, urlHost, sampleTitle, sampleUrl, snapshotIds, startTs, endTs, minutes, status, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+      ON CONFLICT(clusterKey) DO UPDATE SET
+        snapshotIds = excluded.snapshotIds,
+        sampleTitle = excluded.sampleTitle,
+        sampleUrl = excluded.sampleUrl,
+        endTs = excluded.endTs,
+        minutes = excluded.minutes
+      WHERE assignmentQueue.status = 'pending'
+    `).run(
+      c.clusterKey, c.day, c.app, c.urlHost, c.sampleTitle, c.sampleUrl,
+      JSON.stringify(c.snapshotIds), c.startTs, c.endTs, c.minutes, Date.now()
+    );
+  },
+
+  list(opts?: { status?: string; day?: string; limit?: number }): DbAssignmentCluster[] {
+    const db = getDb();
+    let sql = "SELECT * FROM assignmentQueue WHERE 1=1";
+    const params: unknown[] = [];
+    if (opts?.status && opts.status !== "all") { sql += " AND status = ?"; params.push(opts.status); }
+    if (opts?.day) { sql += " AND day = ?"; params.push(opts.day); }
+    sql += " ORDER BY minutes DESC";
+    if (opts?.limit) { sql += " LIMIT ?"; params.push(opts.limit); }
+    return db.prepare(sql).all(...params) as DbAssignmentCluster[];
+  },
+
+  get(id: number): DbAssignmentCluster | undefined {
+    const db = getDb();
+    return db.prepare("SELECT * FROM assignmentQueue WHERE id = ?").get(id) as DbAssignmentCluster | undefined;
+  },
+
+  setSuggestion(id: number, suggestedProjectId: string | null, confidence: number, reason: string, status: "suggested" | "applied" | "rejected"): void {
+    const db = getDb();
+    const resolved = status === "applied" || status === "rejected" ? Date.now() : null;
+    db.prepare(
+      "UPDATE assignmentQueue SET suggestedProjectId = ?, confidence = ?, reason = ?, status = ?, resolvedAt = ? WHERE id = ?"
+    ).run(suggestedProjectId, confidence, reason, status, resolved, id);
+  },
+
+  setStatus(id: number, status: "pending" | "suggested" | "applied" | "rejected"): void {
+    const db = getDb();
+    db.prepare("UPDATE assignmentQueue SET status = ?, resolvedAt = ? WHERE id = ?")
+      .run(status, status === "applied" || status === "rejected" ? Date.now() : null, id);
+  },
+
+  counts(): Record<string, number> {
+    const db = getDb();
+    const rows = db.prepare("SELECT status, COUNT(*) n FROM assignmentQueue GROUP BY status").all() as { status: string; n: number }[];
+    const out: Record<string, number> = { pending: 0, suggested: 0, applied: 0, rejected: 0 };
+    for (const r of rows) out[r.status] = r.n;
+    return out;
+  },
+
+  /** Drop unclassified rows so a rebuild reflects the current window. Keeps suggested/applied/rejected. */
+  clearPending(): number {
+    const db = getDb();
+    return db.prepare("DELETE FROM assignmentQueue WHERE status = 'pending'").run().changes;
+  },
+
+  /** Remove pending/suggested clusters for an app (e.g. after marking it non-reportable). */
+  removeByApp(app: string): number {
+    const db = getDb();
+    return db.prepare("DELETE FROM assignmentQueue WHERE app = ? AND status IN ('pending','suggested')").run(app).changes;
+  },
+};
+
+// ──────────────────────────────────────────────
+// Calendar Events (for correlating meetings → projects)
+// ──────────────────────────────────────────────
+
+export interface DbCalendarEvent {
+  id: string;
+  calendarId: string;
+  title: string;
+  startTs: number;
+  endTs: number;
+  attendees: string;
+  location: string;
+  source: string;
+  updatedAt: number;
+}
+
+export const calendarEvents = {
+  upsertBatch(events: Array<Omit<DbCalendarEvent, "updatedAt">>): void {
+    if (events.length === 0) return;
+    const db = getDb();
+    const stmt = db.prepare(`
+      INSERT INTO calendarEvents (id, calendarId, title, startTs, endTs, attendees, location, source, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        calendarId = excluded.calendarId, title = excluded.title,
+        startTs = excluded.startTs, endTs = excluded.endTs,
+        attendees = excluded.attendees, location = excluded.location,
+        source = excluded.source, updatedAt = excluded.updatedAt
+    `);
+    const now = Date.now();
+    const run = db.transaction((rows: typeof events) => {
+      for (const e of rows) stmt.run(e.id, e.calendarId, e.title, e.startTs, e.endTs, e.attendees, e.location, e.source, now);
+    });
+    run(events);
+  },
+
+  /** Events overlapping [startTs, endTs]. */
+  listOverlapping(startTs: number, endTs: number): DbCalendarEvent[] {
+    const db = getDb();
+    return db.prepare(
+      "SELECT * FROM calendarEvents WHERE startTs < ? AND endTs > ? ORDER BY startTs"
+    ).all(endTs, startTs) as DbCalendarEvent[];
+  },
+
+  list(opts?: { startTs?: number; endTs?: number }): DbCalendarEvent[] {
+    const db = getDb();
+    let sql = "SELECT * FROM calendarEvents WHERE 1=1";
+    const params: unknown[] = [];
+    if (opts?.startTs) { sql += " AND endTs > ?"; params.push(opts.startTs); }
+    if (opts?.endTs) { sql += " AND startTs < ?"; params.push(opts.endTs); }
+    sql += " ORDER BY startTs DESC";
+    return db.prepare(sql).all(...params) as DbCalendarEvent[];
+  },
+
+  count(): number {
+    const db = getDb();
+    return (db.prepare("SELECT COUNT(*) n FROM calendarEvents").get() as { n: number }).n;
   },
 };
 

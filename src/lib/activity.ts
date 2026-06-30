@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { execSync } from "child_process";
 
 interface ProjectInfo {
   _id: string;
@@ -12,6 +13,7 @@ interface ProjectInfo {
   stagingUrl: string;
   aliases: string; // comma-separated
   linearSlug: string;
+  webflowSlug: string;
   org: string;
 }
 
@@ -36,6 +38,12 @@ interface MatchResult {
     | "browser_local"
     | "browser_staging"
     | "browser_prod"
+    | "browser_email"
+    | "browser_docs"
+    | "browser_figma"
+    | "browser_linear"
+    | "browser_webflow"
+    | "browser_workflow"
     | "xcode"
     | "slack"
     | "meeting"
@@ -66,6 +74,16 @@ const SLACK_BUNDLE_IDS = new Set([
 
 const MEETING_BUNDLE_IDS = new Set([
   "us.zoom.xos",
+]);
+
+// Window-tracker apps that are raw app-presence / idle, NOT real activity — flagged
+// non-reportable like Terminal "coding" so they don't pile into the Unmatched row:
+//   - Claude desktop ("Claude", no project signal): the real signal is the cc_turn
+//     transcript data (bundle com.anthropic.claude-code, a different source — stays reportable).
+//   - loginwindow: the screen is locked / logged out — pure idle.
+const NON_REPORTABLE_BUNDLE_IDS = new Set([
+  "com.anthropic.claudefordesktop",
+  "com.apple.loginwindow",
 ]);
 
 const SLACK_WORKSPACE_ORG_MAP: Record<string, string> = {
@@ -220,7 +238,46 @@ function matchBrowser(
           return {
             projectId: project._id,
             projectName: project.projectName,
-            activityType: "other",
+            activityType: "browser_linear",
+            browserOrgInfo,
+          };
+        }
+      }
+    }
+
+    // Webflow: match {slug}.design.webflow.com, {slug}.webflow.io, or webflow.com/dashboard/sites/{slug}
+    // Branch URLs look like {slug}-{hex}.design.webflow.com — extract the subdomain and match
+    // against known project webflowSlugs using startsWith to handle branch hashes.
+    const webflowDesignMatch = urlLower.match(/([a-z0-9][a-z0-9-]*)\.design\.webflow\.com/);
+    const webflowIoMatch = urlLower.match(/([a-z0-9-]+)\.webflow\.io/);
+    const webflowDashMatch = urlLower.match(/webflow\.com\/dashboard\/sites\/([a-z0-9-]+)/);
+    const webflowSubdomain = webflowDesignMatch?.[1] || webflowIoMatch?.[1] || webflowDashMatch?.[1];
+    if (webflowSubdomain) {
+      for (const project of projects) {
+        if (project.webflowSlug) {
+          const slug = project.webflowSlug.toLowerCase();
+          // Exact match or branch URL (subdomain starts with slug followed by a dash + hex hash)
+          if (webflowSubdomain === slug || webflowSubdomain.startsWith(slug + "-")) {
+            return {
+              projectId: project._id,
+              projectName: project.projectName,
+              activityType: "browser_webflow",
+              browserOrgInfo,
+            };
+          }
+        }
+      }
+    }
+
+    // Workflow.design: match workflow.design or app.workflow.design to project with "workflow" alias
+    if (urlLower.includes("workflow.design")) {
+      for (const project of projects) {
+        const aliasTokens = (project.aliases || "").toLowerCase().split(",").map((a) => a.trim()).filter(Boolean);
+        if (aliasTokens.includes("workflow") || aliasTokens.includes("workflow.design")) {
+          return {
+            projectId: project._id,
+            projectName: project.projectName,
+            activityType: "browser_workflow",
             browserOrgInfo,
           };
         }
@@ -256,60 +313,46 @@ function matchBrowser(
     }
   }
 
-  // ── Title-based fallback (for snapshots without URL) ──
+  // Figma: extract file name from title and match against project names/aliases
+  // Titles: "Daymark Health Web – Figma - Google Chrome - profile"
+  //         "Daymark Health Web – Figma - High memory usage - 1.3 GB - Google Chrome - profile"
+  //         "Daymark Health Web - ↳ Design - Google Chrome - profile" (prototype)
+  const figmaNameMatch = windowTitle.match(/^(.+?)\s*[\u2013–-]\s*(?:Figma|↳)/);
+  if (figmaNameMatch) {
+    const figmaFileName = figmaNameMatch[1].trim().toLowerCase();
+    // Tokenize the Figma file name into significant words (4+ chars, skip generic words)
+    const FIGMA_STOPWORDS = new Set(["web", "app", "site", "page", "design", "draft", "copy", "test", "demo", "new", "old", "the"]);
+    const figmaWords = figmaFileName.split(/[\s-]+/).filter((w) => w.length >= 4 && !FIGMA_STOPWORDS.has(w));
 
-  const titleLower = windowTitle.toLowerCase();
-
-  // localhost in title (legacy snapshots without URL)
-  const titleLocalhostMatch = titleLower.match(/localhost:(\d+)/);
-  if (titleLocalhostMatch) {
-    const port = parseInt(titleLocalhostMatch[1], 10);
     for (const project of projects) {
-      if (project.port === port) {
+      const nameWords = project.projectName.toLowerCase().split(/[\s-]+/).filter((w) => w.length >= 4 && !FIGMA_STOPWORDS.has(w));
+      const aliasTokens = (project.aliases || "").toLowerCase().split(",").map((a) => a.trim()).filter(Boolean);
+
+      // Match if any significant word from the Figma file name appears in the project name
+      const wordMatch = figmaWords.some((fw) => nameWords.some((nw) => nw.includes(fw) || fw.includes(nw)));
+      // Or if any alias matches
+      const aliasMatch = aliasTokens.some((alias) => figmaFileName.includes(alias) || alias.includes(figmaFileName));
+
+      if (wordMatch || aliasMatch) {
         return {
           projectId: project._id,
           projectName: project.projectName,
-          activityType: "browser_local",
+          activityType: "browser_figma",
           browserOrgInfo,
         };
       }
     }
   }
 
-  for (const project of projects) {
-    // Check prod/staging domains in title
-    if (project.prodUrl) {
-      const domain = project.prodUrl.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
-      if (titleLower.includes(domain)) {
-        return { projectId: project._id, projectName: project.projectName, activityType: "browser_prod", browserOrgInfo };
-      }
-    }
-    if (project.stagingUrl) {
-      const domain = project.stagingUrl.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
-      if (titleLower.includes(domain)) {
-        return { projectId: project._id, projectName: project.projectName, activityType: "browser_staging", browserOrgInfo };
-      }
-    }
-
-    // Check aliases
-    if (project.aliases) {
-      const aliasList = project.aliases.split(",").map((a) => a.trim().toLowerCase()).filter(Boolean);
-      for (const alias of aliasList) {
-        if (alias.length >= 3 && titleLower.includes(alias)) {
-          return { projectId: project._id, projectName: project.projectName, activityType: classifyBrowserContext(urlLower || titleLower), browserOrgInfo };
-        }
-      }
-    }
-
-    // Check repoName in title
-    if (titleLower.includes(project.repoName.toLowerCase())) {
-      return { projectId: project._id, projectName: project.projectName, activityType: classifyBrowserContext(urlLower || titleLower), browserOrgInfo };
-    }
-
-    // Check projectName in title (min 3 chars to avoid false positives)
-    if (project.projectName.length >= 3 && titleLower.includes(project.projectName.toLowerCase())) {
-      return { projectId: project._id, projectName: project.projectName, activityType: classifyBrowserContext(urlLower || titleLower), browserOrgInfo };
-    }
+  // No project match — classify known tools (email, docs, figma) before falling back to "other"
+  const toolType = classifyBrowserTool(urlLower) || classifyBrowserToolFromTitle(windowTitle);
+  if (toolType) {
+    return {
+      projectId: "",
+      projectName: "",
+      activityType: toolType,
+      browserOrgInfo,
+    };
   }
 
   // No project match — still attribute to org via Chrome profile
@@ -348,12 +391,31 @@ function classifyBrowserCategory(url: string): "email" | "docs" | "browsing" {
   return "browsing";
 }
 
-function classifyBrowserContext(text: string): "browser_local" | "browser_staging" | "browser_prod" {
-  if (text.includes("localhost")) return "browser_local";
-  if (text.includes(".vercel.app") || text.includes("preview") || text.includes("staging")) {
-    return "browser_staging";
-  }
-  return "browser_prod";
+/** Classify a browser URL as a known tool activity type, or null for generic browsing */
+type BrowserToolType = "browser_email" | "browser_docs" | "browser_figma" | "browser_linear" | "browser_webflow";
+
+/** Classify a browser URL as a known tool activity type, or null for generic browsing */
+function classifyBrowserTool(url: string): BrowserToolType | null {
+  if (!url) return null;
+  if (url.includes("mail.google.com")) return "browser_email";
+  if (url.includes("docs.google.com") || url.includes("sheets.google.com") ||
+      url.includes("slides.google.com") || url.includes("drive.google.com")) return "browser_docs";
+  if (url.includes("figma.com")) return "browser_figma";
+  if (url.includes("linear.app")) return "browser_linear";
+  if (url.includes("webflow.com") || url.includes("webflow.io")) return "browser_webflow";
+  return null;
+}
+
+/** Fallback: classify from window title when URL is unavailable */
+function classifyBrowserToolFromTitle(title: string): BrowserToolType | null {
+  if (!title) return null;
+  if (title.includes("Gmail")) return "browser_email";
+  if (title.includes("Google Docs") || title.includes("Google Sheets") ||
+      title.includes("Google Slides") || title.includes("Google Drive")) return "browser_docs";
+  if (title.includes("Figma")) return "browser_figma";
+  if (title.includes("Linear")) return "browser_linear";
+  if (title.includes("Webflow")) return "browser_webflow";
+  return null;
 }
 
 function matchXcode(
@@ -494,7 +556,7 @@ export async function getActivityDataDir(): Promise<string> {
 
 export interface CCTurn {
   timestamp: number;       // start of turn (user message time)
-  durationSeconds: number; // user msg → last assistant response
+  durationSeconds: number; // bounded per-turn estimate: 10s base + typing (~2 chars/sec, capped 5min)
   userChars: number;       // characters the user typed
 }
 
@@ -507,6 +569,7 @@ export interface CCSessionStats {
   assistantMessageCount: number;
   claudeMinutes: number;
   turns: CCTurn[];
+  isAutomated: boolean;        // true if session contains scheduled_task_fire (e.g. /loop)
 }
 
 // ---------------------------------------------------------------------------
@@ -557,7 +620,7 @@ export async function runWindowIngest(): Promise<{ ingested: number; rematched: 
     _id: p.id, localPath: p.localPath, port: p.port,
     projectName: p.projectName, repoName: p.repoName,
     prodUrl: p.prodUrl || "", stagingUrl: p.stagingUrl || "", aliases: p.aliases || "",
-    linearSlug: p.linearSlug || "", org: p.org,
+    linearSlug: p.linearSlug || "", webflowSlug: p.webflowSlug || "", org: p.org,
   }));
 
   // Build projectId → org lookup
@@ -568,7 +631,8 @@ export async function runWindowIngest(): Promise<{ ingested: number; rematched: 
     projectId: string; date: string;
     codingMinutes: number; browserLocalMinutes: number;
     browserStagingMinutes: number; browserProdMinutes: number;
-    xcodeMinutes: number; slackMinutes: number; totalMinutes: number;
+    browserWebflowMinutes: number; xcodeMinutes: number;
+    slackMinutes: number; totalMinutes: number;
   }> = {};
 
   const orgSlackAgg: Record<string, {
@@ -592,8 +656,9 @@ export async function runWindowIngest(): Promise<{ ingested: number; rematched: 
 
     const activityType = match?.activityType || "other";
     // Window tracker "coding" just means Terminal/editor was focused — not a real coding signal.
-    // CC turns are the real coding signal. Store these but flag as non-reportable.
-    const reportable = activityType === "coding" ? 0 : 1;
+    // Same for raw app-presence / idle apps (Claude desktop, loginwindow). All non-reportable;
+    // the real Claude signal is the cc_transcript turns.
+    const reportable = (activityType === "coding" || NON_REPORTABLE_BUNDLE_IDS.has(entry.bundleId)) ? 0 : 1;
 
     snapshots.push({
       ...entry,
@@ -649,7 +714,8 @@ export async function runWindowIngest(): Promise<{ ingested: number; rematched: 
             projectId: match.projectId, date,
             codingMinutes: 0, browserLocalMinutes: 0,
             browserStagingMinutes: 0, browserProdMinutes: 0,
-            xcodeMinutes: 0, slackMinutes: 0, totalMinutes: 0,
+            browserWebflowMinutes: 0, xcodeMinutes: 0,
+            slackMinutes: 0, totalMinutes: 0,
           };
         }
         const agg = dailyAgg[key];
@@ -659,6 +725,7 @@ export async function runWindowIngest(): Promise<{ ingested: number; rematched: 
           case "browser_local": agg.browserLocalMinutes += MINUTES_PER_SNAPSHOT; break;
           case "browser_staging": agg.browserStagingMinutes += MINUTES_PER_SNAPSHOT; break;
           case "browser_prod": agg.browserProdMinutes += MINUTES_PER_SNAPSHOT; break;
+          case "browser_webflow": agg.browserWebflowMinutes += MINUTES_PER_SNAPSHOT; break;
           case "xcode": agg.xcodeMinutes += MINUTES_PER_SNAPSHOT; break;
           case "slack": agg.slackMinutes += MINUTES_PER_SNAPSHOT; break;
         }
@@ -692,9 +759,9 @@ export async function runWindowIngest(): Promise<{ ingested: number; rematched: 
 // ---------------------------------------------------------------------------
 
 async function rematchUnmatched(
-  projectsDb: { list: () => Array<{ id: string; localPath: string; port: number; projectName: string; repoName: string; prodUrl?: string; stagingUrl?: string; aliases?: string; linearSlug?: string; org: string }> },
+  projectsDb: { list: () => Array<{ id: string; localPath: string; port: number; projectName: string; repoName: string; prodUrl?: string; stagingUrl?: string; aliases?: string; linearSlug?: string; webflowSlug?: string; org: string }> },
   snapshotsDb: { listUnmatched: () => Array<{ id?: number; app: string; windowTitle: string; bundleId: string; timestamp: number; url?: string }>; updateMatch: (id: number, projectId: string, projectName: string, activityType: string) => void; updateMatchFull: (id: number, data: { activityType: string; org: string; slackWorkspace: string; slackChannel: string; slackChannelType: string }) => void },
-  activityDailyDb: { upsert: (data: { projectId: string; date: string; codingMinutes: number; browserLocalMinutes: number; browserStagingMinutes: number; browserProdMinutes: number; xcodeMinutes: number; slackMinutes: number; totalMinutes: number }) => void },
+  activityDailyDb: { upsert: (data: { projectId: string; date: string; codingMinutes: number; browserLocalMinutes: number; browserStagingMinutes: number; browserProdMinutes: number; browserWebflowMinutes: number; xcodeMinutes: number; slackMinutes: number; totalMinutes: number }) => void },
   orgSlackDailyDb: { upsert: (data: { date: string; org: string; workspace: string; channel: string; channelType: string; minutes: number }) => void },
   orgBrowserDailyDb: { upsert: (data: { date: string; org: string; chromeProfile: string; category: string; minutes: number }) => void },
 ): Promise<number> {
@@ -706,7 +773,7 @@ async function rematchUnmatched(
     _id: p.id, localPath: p.localPath, port: p.port,
     projectName: p.projectName, repoName: p.repoName,
     prodUrl: p.prodUrl || "", stagingUrl: p.stagingUrl || "", aliases: p.aliases || "",
-    linearSlug: p.linearSlug || "", org: p.org,
+    linearSlug: p.linearSlug || "", webflowSlug: p.webflowSlug || "", org: p.org,
   }));
   const projectOrgMap: Record<string, string> = {};
   for (const p of projectInfos) { projectOrgMap[p._id] = p.org; }
@@ -717,7 +784,8 @@ async function rematchUnmatched(
     projectId: string; date: string;
     codingMinutes: number; browserLocalMinutes: number;
     browserStagingMinutes: number; browserProdMinutes: number;
-    xcodeMinutes: number; slackMinutes: number; totalMinutes: number;
+    browserWebflowMinutes: number; xcodeMinutes: number;
+    slackMinutes: number; totalMinutes: number;
   }> = {};
   const orgSlackAgg: Record<string, {
     date: string; org: string; workspace: string;
@@ -779,7 +847,8 @@ async function rematchUnmatched(
             projectId: match.projectId, date,
             codingMinutes: 0, browserLocalMinutes: 0,
             browserStagingMinutes: 0, browserProdMinutes: 0,
-            xcodeMinutes: 0, slackMinutes: 0, totalMinutes: 0,
+            browserWebflowMinutes: 0, xcodeMinutes: 0,
+            slackMinutes: 0, totalMinutes: 0,
           };
         }
         const agg = dailyAgg[key];
@@ -789,6 +858,7 @@ async function rematchUnmatched(
           case "browser_local": agg.browserLocalMinutes += MINUTES_PER_SNAPSHOT; break;
           case "browser_staging": agg.browserStagingMinutes += MINUTES_PER_SNAPSHOT; break;
           case "browser_prod": agg.browserProdMinutes += MINUTES_PER_SNAPSHOT; break;
+          case "browser_webflow": agg.browserWebflowMinutes += MINUTES_PER_SNAPSHOT; break;
           case "xcode": agg.xcodeMinutes += MINUTES_PER_SNAPSHOT; break;
           case "slack": agg.slackMinutes += MINUTES_PER_SNAPSHOT; break;
         }
@@ -897,11 +967,14 @@ export async function runCCParse(opts?: { force?: boolean }): Promise<{ parsed: 
           humanMessageCount: stats.humanMessageCount,
           assistantMessageCount: stats.assistantMessageCount,
           claudeMinutes: stats.claudeMinutes,
+          isAutomated: stats.isAutomated,
         });
 
         affectedKeys.push({ projectId: matchedProject.id, date: sessionDate });
 
         // Insert individual CC turns into unified activity log
+        // Automated sessions (e.g. /loop) are logged but marked non-reportable
+        // so they don't inflate human work hours
         if (stats.turns.length > 0) {
           const turnSnapshots = stats.turns.map((turn) => ({
             timestamp: turn.timestamp,
@@ -916,6 +989,7 @@ export async function runCCParse(opts?: { force?: boolean }): Promise<{ parsed: 
             org: matchedProject.org,
             ccSessionId: sessionId,
             ccUserChars: turn.userChars,
+            reportable: stats.isAutomated ? 0 : 1,
           }));
           snapshotsDb.insertBatch(turnSnapshots);
         }
@@ -944,7 +1018,6 @@ function installLaunchAgent(agentName: string, scriptFile: string): void {
   const PLIST_PATH = path.join(os.homedir(), "Library/LaunchAgents", `${agentName}.plist`);
   if (fs.existsSync(PLIST_PATH)) return; // already installed
 
-  const { execSync } = require("child_process");
   const LOG_DIR = path.join(os.homedir(), ".tinker-launch/activity");
   const INSTALL_DIR = path.join(os.homedir(), ".tinker-launch/bin");
   const sourceScript = path.resolve(process.cwd(), `scripts/${scriptFile}`);
@@ -992,6 +1065,7 @@ export async function parseCCSessionFile(
     assistantMessageCount: 0,
     claudeMinutes: 0,
     turns: [],
+    isAutomated: false,
   };
 
   // For claude working time: track (type, timestamp, isRealHuman, userChars) per message
@@ -1020,6 +1094,11 @@ export async function parseCCSessionFile(
     if (timestamp) {
       ts = new Date(timestamp).getTime();
       if (isNaN(ts)) ts = null;
+    }
+
+    // Detect automated sessions (e.g. /loop) by the presence of scheduled_task_fire
+    if (type === "system" && (obj.subtype as string) === "scheduled_task_fire") {
+      stats.isAutomated = true;
     }
 
     if (type === "human" || type === "user") {
@@ -1060,33 +1139,32 @@ export async function parseCCSessionFile(
     }
   }
 
-  // Calculate Claude working time and extract individual turns:
-  // For each real human message, find the last assistant message before the next
-  // real human message. The span from human→last assistant = one Claude work turn.
-  // User overhead per turn: 10s base (reading response) + estimated typing time
-  // Typing estimate: ~2 chars/sec, capped at 5 minutes (handles paste-heavy prompts)
+  // Estimate Claude time per turn from the user's prompt size, bounded — the SAME basis
+  // the Day Timeline uses to size each cc_turn block. Per real human message that got an
+  // assistant response: 10s base (reading the response) + typing time (~2 chars/sec,
+  // capped at 5 min for paste-heavy prompts).
+  //
+  // We deliberately do NOT sum the raw human→last-assistant wall-clock span: a session
+  // left open and resumed across days would count those idle gaps as "Claude time"
+  // (e.g. a 4-turn session spanning 4 days read as ~90h). Summing the bounded per-turn
+  // estimates instead keeps summary/cc-usage rollups reconciled with the timeline.
   const USER_BASE_MS = 10 * 1000;
   const CHARS_PER_SEC = 2;
   const MAX_TYPING_MS = 5 * 60 * 1000;
-  let claudeMs = 0;
   const turns: CCTurn[] = [];
   for (let i = 0; i < msgTimeline.length; i++) {
     const entry = msgTimeline[i];
     if (entry.type !== "user" || !entry.isRealHuman) continue;
 
-    // Find the last assistant message before the next real human message
-    let lastAssistantTs: number | null = null;
+    // Only count the turn if an assistant message follows before the next real human
+    let hasAssistantResponse = false;
     for (let j = i + 1; j < msgTimeline.length; j++) {
       if (msgTimeline[j].type === "user" && msgTimeline[j].isRealHuman) break;
-      if (msgTimeline[j].type === "assistant") {
-        lastAssistantTs = msgTimeline[j].ts;
-      }
+      if (msgTimeline[j].type === "assistant") { hasAssistantResponse = true; break; }
     }
-    if (lastAssistantTs !== null) {
-      const claudeWorkMs = lastAssistantTs - entry.ts;
+    if (hasAssistantResponse) {
       const typingMs = Math.min((entry.userChars / CHARS_PER_SEC) * 1000, MAX_TYPING_MS);
       const userTimeMs = USER_BASE_MS + typingMs;
-      claudeMs += claudeWorkMs;
       turns.push({
         timestamp: entry.ts,
         durationSeconds: Math.round(userTimeMs / 1000),
@@ -1094,7 +1172,8 @@ export async function parseCCSessionFile(
       });
     }
   }
-  stats.claudeMinutes = claudeMs / (1000 * 60);
+  // Claude time = sum of the bounded per-turn estimates above (== the timeline's total).
+  stats.claudeMinutes = turns.reduce((sum, t) => sum + t.durationSeconds, 0) / 60;
   stats.turns = turns;
 
   return stats;

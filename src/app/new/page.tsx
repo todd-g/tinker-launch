@@ -62,6 +62,8 @@ export default function NewProjectPage() {
   const [description, setDescription] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createRepo, setCreateRepo] = useState(true);
+  const [webflowSlug, setWebflowSlug] = useState("");
   const [generateCredentials, setGenerateCredentials] = useState(true);
 
   // Credentials state
@@ -129,6 +131,7 @@ export default function NewProjectPage() {
           org: finalOrg,
           description,
           port: nextPort ?? 3001,
+          createRepo,
         }),
       });
 
@@ -141,7 +144,7 @@ export default function NewProjectPage() {
       }
 
       // Save to database
-      await createProjectApi({
+      const createResult = await createProjectApi({
         action: "create",
         data: {
           repoName,
@@ -149,10 +152,19 @@ export default function NewProjectPage() {
           org: finalOrg,
           description,
           localPath: result.localPath,
-          githubUrl: result.githubUrl,
+          githubUrl: result.githubUrl || "",
           port: nextPort ?? 3001,
         },
       });
+
+      // Save webflowSlug if set
+      if (webflowSlug && createResult?.id) {
+        await fetch("/api/db/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "update", id: createResult.id, webflowSlug }),
+        });
+      }
 
       // Generate credentials if enabled and account has Vercel token
       if (generateCredentials && hasVercelToken) {
@@ -322,38 +334,68 @@ export default function NewProjectPage() {
                   />
                 </div>
 
-                {/* Generate credentials checkbox */}
-                {hasVercelToken && (
+                <div className="space-y-2">
+                  <Label htmlFor="webflowSlug">Webflow Slug</Label>
+                  <Input
+                    id="webflowSlug"
+                    placeholder="my-site"
+                    value={webflowSlug}
+                    onChange={(e) => setWebflowSlug(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Matches <code>{"{slug}"}.design.webflow.com</code> and <code>{"{slug}"}.webflow.io</code> for activity tracking
+                  </p>
+                </div>
+
+                <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      id="generateCredentials"
-                      checked={generateCredentials}
-                      onChange={(e) => setGenerateCredentials(e.target.checked)}
+                      id="createRepo"
+                      checked={createRepo}
+                      onChange={(e) => setCreateRepo(e.target.checked)}
                       className="h-4 w-4 rounded border-gray-300"
                     />
-                    <Label htmlFor="generateCredentials" className="text-sm font-normal">
-                      Generate .envrc and cli.sh with credentials
+                    <Label htmlFor="createRepo" className="text-sm font-normal">
+                      Create GitHub repository
                     </Label>
                   </div>
-                )}
+
+                  {/* Generate credentials checkbox */}
+                  {hasVercelToken && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="generateCredentials"
+                        checked={generateCredentials}
+                        onChange={(e) => setGenerateCredentials(e.target.checked)}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      <Label htmlFor="generateCredentials" className="text-sm font-normal">
+                        Generate .envrc and cli.sh with credentials
+                      </Label>
+                    </div>
+                  )}
+                </div>
 
                 <div className="rounded-lg bg-muted p-4 text-sm">
                   <p className="font-medium mb-2">This will:</p>
                   <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li>
-                      Create GitHub repo at{" "}
-                      <code className="bg-background px-1 rounded">
-                        {selectedOrg || "org"}/{repoName || "repo-name"}
-                      </code>
-                    </li>
+                    {createRepo && (
+                      <li>
+                        Create GitHub repo at{" "}
+                        <code className="bg-background px-1 rounded">
+                          {selectedOrg || "org"}/{repoName || "repo-name"}
+                        </code>
+                      </li>
+                    )}
                     <li>
                       Create local folder at{" "}
                       <code className="bg-background px-1 rounded">
                         $PROJECTS_DIR/{repoName || "repo-name"}
                       </code>
                     </li>
-                    <li>Initialize git with remote origin</li>
+                    {createRepo && <li>Initialize git with remote origin</li>}
                     <li>Generate CLAUDE.md and TECH_STACK.md</li>
                     <li>
                       Assign port{" "}
@@ -361,6 +403,12 @@ export default function NewProjectPage() {
                         {nextPort ?? "..."}
                       </code>
                     </li>
+                    {webflowSlug && (
+                      <li>
+                        Track Webflow activity for{" "}
+                        <code className="bg-background px-1 rounded">{webflowSlug}</code>
+                      </li>
+                    )}
                     {generateCredentials && hasVercelToken && (
                       <li>
                         Generate <code className="bg-background px-1 rounded">.envrc</code> and{" "}

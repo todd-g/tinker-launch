@@ -34,6 +34,34 @@ vercel
 ## Other Commands
 - `gh` - GitHub CLI for repo creation
 
+## Linear Integration
+
+**Use the GraphQL API directly — do NOT use the Linear MCP.**
+
+The Linear MCP is limited to one workspace. This project supports multiple workspaces via `LINEAR_API_KEY` in `.envrc` (set per-project in Settings → Credentials).
+
+```bash
+# GraphQL endpoint
+https://api.linear.app/graphql
+
+# Auth header
+Authorization: Bearer $LINEAR_API_KEY
+```
+
+Example query:
+```ts
+const res = await fetch("https://api.linear.app/graphql", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${process.env.LINEAR_API_KEY}`,
+  },
+  body: JSON.stringify({ query: `{ viewer { id name } }` }),
+});
+```
+
+API keys are stored in `~/.tinker-launch/credentials.yaml` under `linear_keys`, keyed by workspace slug. Use `getLinearKey(credentials, project.linearSlug)` from `src/lib/credentials.ts` to resolve the key for a given project.
+
 ## Project Structure
 ```
 /app              - Next.js App Router pages

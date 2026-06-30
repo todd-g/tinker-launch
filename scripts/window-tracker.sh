@@ -58,13 +58,45 @@ while true; do
     if [ "$skip" = false ]; then
       timestamp=$(($(date +%s) * 1000))
 
-      # Capture URL for browser windows
+      # Capture URL for browser windows.
+      # For Chromium browsers (Chrome, Brave), we read the URL directly from the
+      # address bar via System Events accessibility API. This is profile-agnostic —
+      # it always reads from the actual focused window, unlike the browser's own
+      # AppleScript API which only sees one profile's windows.
       url=""
       case "$bundleId" in
-        com.google.Chrome)
-          url=$(osascript -e 'tell application "Google Chrome" to get URL of active tab of front window' 2>/dev/null) ;;
-        com.brave.Browser)
-          url=$(osascript -e 'tell application "Brave Browser" to get URL of active tab of front window' 2>/dev/null) ;;
+        com.google.Chrome|com.brave.Browser)
+          url=$(osascript -l JavaScript -e '
+            function run() {
+              const se = Application("System Events");
+              const proc = se.processes.byName("'"$app"'");
+              const w = proc.windows[0];
+              function find(elem, depth) {
+                if (depth > 12) return null;
+                try {
+                  if (elem.role() === "AXTextField" && elem.description() === "Address and search bar") {
+                    return elem.value();
+                  }
+                  const kids = elem.uiElements();
+                  for (let i = 0; i < kids.length; i++) {
+                    const r = find(kids[i], depth + 1);
+                    if (r) return r;
+                  }
+                } catch(e) {}
+                return null;
+              }
+              return find(w, 0) || "";
+            }
+          ' 2>/dev/null)
+          # The address bar shows display URLs (no scheme). Add https:// if missing,
+          # but keep localhost URLs as http://.
+          if [ -n "$url" ] && ! echo "$url" | grep -q '^https\?://'; then
+            case "$url" in
+              localhost*) url="http://$url" ;;
+              *) url="https://$url" ;;
+            esac
+          fi
+          ;;
         com.apple.Safari)
           url=$(osascript -e 'tell application "Safari" to get URL of current tab of front window' 2>/dev/null) ;;
         company.thebrowser.Browser)

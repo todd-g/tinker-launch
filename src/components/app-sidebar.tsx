@@ -54,6 +54,10 @@ const staticNavMain = [
         url: "/activity/timeline",
       },
       {
+        title: "Assign",
+        url: "/activity/assign",
+      },
+      {
         title: "Claude Code",
         url: "/activity/claude-code",
       },

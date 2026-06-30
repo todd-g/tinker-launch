@@ -141,6 +141,8 @@ const ACTIVITY_COLORS: Record<string, string> = {
   browser_local: "#22c55e",
   browser_staging: "#f59e0b",
   browser_prod: "#a855f7",
+  browser_webflow: "#4353ff",
+  browser_workflow: "#14b8a6",
   xcode: "#06b6d4",
   slack: "#e11d48",
   cc_turn: "#8b5cf6",
@@ -152,6 +154,8 @@ const ACTIVITY_BG_CLASSES: Record<string, string> = {
   browser_local: "bg-green-500",
   browser_staging: "bg-amber-500",
   browser_prod: "bg-purple-500",
+  browser_webflow: "bg-blue-600",
+  browser_workflow: "bg-teal-500",
   xcode: "bg-cyan-500",
   slack: "bg-rose-500",
   cc_turn: "bg-violet-500",
@@ -163,9 +167,11 @@ const ACTIVITY_LABELS: Record<string, string> = {
   browser_local: "Browser (Local)",
   browser_staging: "Browser (Staging)",
   browser_prod: "Browser (Prod)",
+  browser_webflow: "Webflow",
+  browser_workflow: "Workflow",
   xcode: "Xcode",
   slack: "Slack",
-  cc_turn: "CC Turn",
+  cc_turn: "Claude Code",
   other: "Other",
 };
 
@@ -425,8 +431,10 @@ export default function ActivityPage() {
             <SelectItem value="coding">Coding</SelectItem>
             <SelectItem value="browser_local">Browser (Local)</SelectItem>
             <SelectItem value="browser_prod">Browser (Prod)</SelectItem>
+            <SelectItem value="browser_webflow">Webflow</SelectItem>
+            <SelectItem value="browser_workflow">Workflow</SelectItem>
             <SelectItem value="slack">Slack</SelectItem>
-            <SelectItem value="cc_turn">CC Turn</SelectItem>
+            <SelectItem value="cc_turn">Claude Code</SelectItem>
             <SelectItem value="other">Other</SelectItem>
           </SelectContent>
         </Select>

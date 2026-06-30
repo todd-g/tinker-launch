@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { createGitHubRepo, initGitRepo } from "@/lib/github";
 import { scaffoldProject } from "@/lib/scaffolding";
+import { readCredentials, getGitAuthorForOrg } from "@/lib/credentials";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { repoName, projectName, org, description, port } = body;
+    const { repoName, projectName, org, description, port, createRepo = true } = body;
 
     if (!repoName || !projectName || !org || !description) {
       return NextResponse.json(
@@ -14,28 +15,37 @@ export async function POST(request: Request) {
       );
     }
 
-    // Step 1: Create GitHub repo
-    const ghResult = await createGitHubRepo({
-      repoName,
-      org,
-      description,
-      isPrivate: true,
-    });
+    let githubUrl = "";
 
-    if (!ghResult.success) {
-      return NextResponse.json(
-        { success: false, error: `GitHub: ${ghResult.error}` },
-        { status: 500 }
-      );
+    if (createRepo) {
+      // Step 1: Create GitHub repo
+      const ghResult = await createGitHubRepo({
+        repoName,
+        org,
+        description,
+        isPrivate: true,
+      });
+
+      if (!ghResult.success) {
+        return NextResponse.json(
+          { success: false, error: `GitHub: ${ghResult.error}` },
+          { status: 500 }
+        );
+      }
+      githubUrl = ghResult.githubUrl!;
     }
 
-    // Step 2: Scaffold local project
+    // Step 2: Scaffold local project (with git author from credentials)
+    const credentials = await readCredentials();
+    const gitAuthor = getGitAuthorForOrg(credentials, org);
+
     const scaffoldResult = await scaffoldProject({
       repoName,
       projectName,
       org,
       description,
       port,
+      gitAuthor: gitAuthor || undefined,
     });
 
     if (!scaffoldResult.success) {
@@ -45,22 +55,24 @@ export async function POST(request: Request) {
       );
     }
 
-    // Step 3: Initialize git
-    const gitInitialized = await initGitRepo(
-      scaffoldResult.localPath,
-      ghResult.githubUrl!
-    );
-
-    if (!gitInitialized) {
-      return NextResponse.json(
-        { success: false, error: "Failed to initialize git" },
-        { status: 500 }
+    // Step 3: Initialize git (only if repo was created)
+    if (createRepo) {
+      const gitInitialized = await initGitRepo(
+        scaffoldResult.localPath,
+        githubUrl
       );
+
+      if (!gitInitialized) {
+        return NextResponse.json(
+          { success: false, error: "Failed to initialize git" },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({
       success: true,
-      githubUrl: ghResult.githubUrl,
+      githubUrl,
       localPath: scaffoldResult.localPath,
     });
   } catch (error) {

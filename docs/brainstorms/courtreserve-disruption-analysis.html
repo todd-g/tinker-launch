@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CourtReserve — Disruption Analysis</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --surface: #ffffff;
+    --ink: #1a1a1a;
+    --ink-soft: #4a4a4a;
+    --muted: #8a8a8a;
+    --rule: #e6e3dc;
+    --accent: #c2410c;
+    --accent-soft: #fff1e6;
+    --good: #15803d;
+    --bad: #b91c1c;
+    --warn: #b45309;
+    --code-bg: #f4f1ea;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-serif, Georgia, 'Times New Roman', serif;
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 56px 28px 96px;
+  }
+  header.doc-head {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 24px;
+    margin-bottom: 36px;
+  }
+  .eyebrow {
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 38px;
+    line-height: 1.15;
+    margin: 0 0 12px;
+    letter-spacing: -0.02em;
+  }
+  h2 {
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 22px;
+    margin: 48px 0 16px;
+    letter-spacing: -0.01em;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+  }
+  h3 {
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 16px;
+    margin: 28px 0 10px;
+    color: var(--ink);
+  }
+  .deck {
+    font-size: 19px;
+    color: var(--ink-soft);
+    line-height: 1.5;
+  }
+  p { margin: 0 0 14px; }
+  ul, ol { padding-left: 22px; margin: 0 0 16px; }
+  li { margin-bottom: 8px; }
+  a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+  a:hover { text-decoration: none; }
+  blockquote {
+    border-left: 3px solid var(--accent);
+    padding: 4px 0 4px 16px;
+    margin: 16px 0;
+    color: var(--ink-soft);
+    font-style: italic;
+  }
+  blockquote cite {
+    display: block;
+    margin-top: 6px;
+    font-size: 13px;
+    font-style: normal;
+    color: var(--muted);
+  }
+  code {
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 0.88em;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 20px;
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  th {
+    background: var(--surface);
+    font-weight: 600;
+    color: var(--ink);
+    border-bottom: 2px solid var(--ink);
+  }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .callout {
+    background: var(--accent-soft);
+    border-left: 4px solid var(--accent);
+    padding: 16px 18px;
+    border-radius: 0 6px 6px 0;
+    margin: 20px 0;
+    font-size: 16px;
+  }
+  .callout strong { color: var(--accent); }
+  .pill {
+    display: inline-block;
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--code-bg);
+    color: var(--ink-soft);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .pill.good { background: #dcfce7; color: var(--good); }
+  .pill.bad { background: #fee2e2; color: var(--bad); }
+  .pill.warn { background: #fef3c7; color: var(--warn); }
+  .grid-two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 16px 18px;
+    font-size: 15px;
+  }
+  .card .label {
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  ol.thesis { counter-reset: thesis; list-style: none; padding-left: 0; }
+  ol.thesis > li {
+    counter-increment: thesis;
+    position: relative;
+    padding-left: 44px;
+    margin-bottom: 16px;
+  }
+  ol.thesis > li::before {
+    content: counter(thesis);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    font-family: ui-sans-serif, sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .meta-row {
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 13px;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  footer.doc-foot {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  @media (max-width: 600px) {
+    .wrap { padding: 32px 18px 64px; }
+    h1 { font-size: 30px; }
+    .deck { font-size: 17px; }
+    .grid-two { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc-head">
+  <div class="eyebrow">Competitive Research · Disruption Thesis</div>
+  <h1>CourtReserve is ripe to be replaced.</h1>
+  <p class="deck">Their pricing structure has multiple clear rent-extraction patterns, and operator complaints map directly to the openings you intuited. Here's what's verified, sourced from CourtReserve's own pricing page, Capterra reviews, and their public feedback board.</p>
+  <div class="meta-row">
+    <span>Deep research — 19 sources fetched, 25 claims adversarially verified, 17 confirmed</span>
+  </div>
+</header>
+
+<div class="callout">
+  <strong>Bottom line.</strong> CourtReserve charges per court, gates table-stakes features behind $25/mo add-ons, walls off a branded mobile app behind a $499 setup fee and 1-year contract, and operators are getting hosed on payment processing through SafeSave. The pitch for a replacement writes itself: <em>same software, none of the upsell tax.</em>
+</div>
+
+<h2>Pricing — verified</h2>
+
+<p>From <a href="https://courtreserve.com/pricing/">courtreserve.com/pricing</a>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Tier</th>
+      <th class="num">Monthly</th>
+      <th class="num">Annual</th>
+      <th>Court cap</th>
+      <th>Branded mobile app</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Launch</strong></td>
+      <td class="num">$199</td>
+      <td class="num">$159</td>
+      <td>8 courts</td>
+      <td><span class="pill bad">Co-branded only</span></td>
+    </tr>
+    <tr>
+      <td><strong>Advance</strong></td>
+      <td class="num">$369</td>
+      <td class="num">$329</td>
+      <td>16 courts</td>
+      <td><span class="pill bad">Co-branded only</span></td>
+    </tr>
+    <tr>
+      <td><strong>Momentum</strong></td>
+      <td class="num">$549</td>
+      <td class="num">$499</td>
+      <td>32 courts</td>
+      <td><span class="pill warn">+$499 setup · 1-yr lock-in</span></td>
+    </tr>
+    <tr>
+      <td>Multi-location / >32 courts</td>
+      <td colspan="4">"Contact sales" — opaque</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>$25/month à la carte add-ons</h3>
+<p>Each billed individually on top of the tier price:</p>
+<ul>
+  <li>DUPR Integration <em>(bundled free on Advance/Momentum)</em></li>
+  <li>Access Control <em>(legacy plans)</em></li>
+  <li>Stringing Module</li>
+  <li>Swish Integration</li>
+  <li>Video Recording Integration</li>
+  <li>PourMyBev</li>
+</ul>
+
+<h3>Payments</h3>
+<p>Stripe + SafeSave. SafeSave is the markup vehicle — couldn't verify the exact spread above interchange, but operator quotes confirm it's a sore point. Convenience-fee pass-through to members is now in beta after years of operator requests.</p>
+
+<h2>The rent-extraction patterns you spotted — confirmed</h2>
+
+<ol>
+  <li><strong>Per-court tier gating.</strong> Adding courts costs CourtReserve nothing in software/compute, but bumps you from $199 → $369 → $549. 9 courts = $170/mo more for one extra row in a database.</li>
+  <li><strong>Branded mobile app gated to top tier + $499 setup + 1-year contract.</strong> A white-label deliverable that's table stakes for serious clubs, walled off.</li>
+  <li><strong>$25/mo per integration.</strong> DUPR, Stringing, Video, Access Control. None of these cost CR meaningful marginal $ to maintain. Classic à la carte upsell stack.</li>
+  <li><strong>"Contact sales" wall</strong> the moment you exceed 32 courts or want multi-location. Opaque pricing is itself a tax on larger operators.</li>
+  <li><strong>No native website hosting.</strong> Operators must embed CR's widget into their own site. From Capterra: <em>"Wish they would also be a website hosting."</em></li>
+  <li><strong>Payment processing markup via SafeSave.</strong> Operator on CR's own feedback board: <em>"We are getting killed with credit card fees from Safesave. Please help us!"</em></li>
+</ol>
+
+<p><span class="pill warn">Caveat</span> The "no seasonal pause" angle you mentioned — I tried to verify it as a documented complaint and it was refuted by adversarial verification (1-2 vote). Operators complain about season-related workflows, but not specifically about being unable to pause billing. Still a likely opening, just not yet evidenced.</p>
+
+<h2>Top operator pain points</h2>
+<p>Verbatim where possible. All from Capterra reviews, CourtReserve's own feedback board, or independent operator sources.</p>
+
+<blockquote>
+  "The background is clunky. It takes a ton of time to set up."
+  <cite>— Christian L., Tennis Professional, Capterra</cite>
+</blockquote>
+<p>Multiple reviews recommend "having superusers to manage the admin side." Court costs configuration requires CS-team intervention.</p>
+
+<blockquote>
+  "Collecting open time court fees divided between 2-4 players was more difficult than it needed to be."
+  <cite>— Bill D., Manager, Capterra</cite>
+</blockquote>
+<p>Architectural constraint: fees are tied to the reservation owner, can't split natively. CR's own feedback board has an open ticket for "Split Payments Across Different Membership Types" confirming the gap.</p>
+
+<blockquote>
+  "We are getting killed with credit card fees from Safesave. Please help us!"
+  <cite>— Cami Gill, on CourtReserve's official feedback board</cite>
+</blockquote>
+<blockquote>
+  "We would like to offer credit card payments to our players but have so far avoided this due to the high cost of transaction fees."
+  <cite>— Chris Lanzone, same thread</cite>
+</blockquote>
+
+<blockquote>
+  "Refunding or crediting partially paid for things is not doable (or was not doable)."
+  <cite>— Capterra review</cite>
+</blockquote>
+
+<blockquote>
+  "We have to integrate the widget into our current website. Wish they would also be a website hosting."
+  <cite>— Capterra review</cite>
+</blockquote>
+
+<blockquote>
+  "The mobile version was a bit clunky and difficult to find court times that were available."
+  <cite>— Capterra review</cite>
+</blockquote>
+<p>Android version flagged as removing membership access while still charging cards. CR has since announced a "brand new mobile app," implicitly acknowledging existing shortcomings.</p>
+
+<h3>Other documented friction</h3>
+<ul>
+  <li>Restrictive reservation rules — "allowing residents to book every 48 hours seem to cause a lot of problems we were never able to resolve."</li>
+  <li>Bugs in tournament scoring and double-charging reported.</li>
+  <li>Limited availability views — "I wasn't able to see the court availability or the full schedule from my view."</li>
+</ul>
+
+<h2>Competitive landscape</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Vendor</th>
+      <th>Pricing model</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>CourtReserve</strong></td>
+      <td>Per-court tier</td>
+      <td>The target</td>
+    </tr>
+    <tr>
+      <td><strong>PlayByPoint</strong></td>
+      <td>Not publicly disclosed</td>
+      <td>Similar "Club OS" positioning. Verify before targeting.</td>
+    </tr>
+    <tr>
+      <td><strong><a href="https://playtomic.com/pricing">Playtomic</a></strong></td>
+      <td>Feature-tier (~$38 / $88 / $132 / $276)</td>
+      <td>No court caps, no setup fees disclosed. Marketplace; takes booking commission. Gates Memberships/Leagues/API to Champion tier.</td>
+    </tr>
+    <tr>
+      <td><strong>OpenCourt / PodPlay</strong></td>
+      <td>"Modern booking" — booking-first</td>
+      <td>Lighter on club ops; less full-stack</td>
+    </tr>
+    <tr>
+      <td><strong><a href="https://www.clubexpress.com/pricing">ClubExpress</a></strong></td>
+      <td>Per-member ($0.42 → $0.30/member, $24/mo min)</td>
+      <td>Different axis of rent-extraction — charges per member instead of per court</td>
+    </tr>
+    <tr>
+      <td><strong>Club Automation / ClubReady</strong></td>
+      <td>Enterprise country-club focus</td>
+      <td>Different segment, not directly competitive</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <strong>Note.</strong> Many third-party directory pages (Capterra, GetApp) show stale $25/mo flat-rate pricing for CourtReserve — that's outdated aggregator data, not real pricing. Operators may be shopping based on misleading numbers. A real pricing page is itself a competitive differentiator.
+</div>
+
+<h2>Disruption thesis</h2>
+<p>What a replacement targeting club operators should look like:</p>
+
+<ol class="thesis">
+  <li><strong>Flat or transparent per-transaction pricing.</strong> Kill the court-count tier. Charge a flat SaaS fee regardless of court count, OR a flat % of bookings — the only metric that actually correlates with value delivered.</li>
+  <li><strong>Bundle the integrations.</strong> DUPR, video, access control, stringing — included. They cost you nothing meaningful to ship.</li>
+  <li><strong>Branded mobile app free on every tier.</strong> No setup fee, no contract lock-in. This is the loudest signal you're not them.</li>
+  <li><strong>Payment processing at cost.</strong> Pass Stripe through at 2.9% + 30¢, or negotiate Stripe Connect rates and split the savings. Native convenience-fee pass-through on day one.</li>
+  <li><strong>Native website hosting.</strong> Give clubs a real club site — branded, SEO'd — not just a widget to embed in a Squarespace.</li>
+  <li><strong>Seasonal pause built in.</strong> Outdoor/northern clubs should be able to pause billing 4-5 months a year. Huge lever for the seasonal segment even though it's not yet a top documented complaint.</li>
+  <li><strong>Fix the broken stuff on CR's own feedback board.</strong> Multi-player court-fee splitting, partial refunds, better mobile UX. Months of work, not years.</li>
+  <li><strong>Migration as a feature.</strong> "We migrate you in 7 days, including member data and Stripe handoff." Migration friction is currently the biggest reason operators stay.</li>
+</ol>
+
+<h2>Open questions worth answering before committing</h2>
+
+<div class="grid-two">
+  <div class="card">
+    <div class="label">Lever #1</div>
+    <p><strong>What's SafeSave's actual markup above interchange?</strong> This is the single biggest disruption lever and I couldn't get hard numbers. If it's 50-100bps above Stripe direct, that alone is worth millions to a mid-size club annually.</p>
+  </div>
+  <div class="card">
+    <div class="label">Pricing</div>
+    <p><strong>PlayByPoint's actual pricing.</strong> They're positioned identically to CR but their public pricing page wasn't crawlable. Worth a sales call.</p>
+  </div>
+  <div class="card">
+    <div class="label">Segment</div>
+    <p><strong>Customer segmentation.</strong> Is the price-sensitive sweet spot the 10-20 court indoor/outdoor seasonal club? That's the segment getting hit hardest by court-count tiering + no seasonal pause.</p>
+  </div>
+  <div class="card">
+    <div class="label">Switching cost</div>
+    <p><strong>Migration friction.</strong> What does "switch in 7 days" actually require? Data export from CR, member re-onboarding, Stripe handoff, mobile app re-download. Each is a real cost.</p>
+  </div>
+</div>
+
+<h2>Sources</h2>
+<ul>
+  <li><a href="https://courtreserve.com/pricing/">CourtReserve pricing page</a> — primary</li>
+  <li><a href="https://courtreserve.com/pricing-update/">CourtReserve pricing update page</a> — primary, lists $25 add-ons</li>
+  <li><a href="https://www.capterra.com/p/152562/CourtReserve/reviews/">Capterra reviews</a> — operator complaints</li>
+  <li><a href="https://feedback.courtreserve.com/communities/1/topics/143-convenience-fee-when-using-a-credit-card">CourtReserve feedback board — SafeSave fees thread</a></li>
+  <li><a href="https://courtreserve.com/handling-payments-tennis-pickleball-club/">CR payments doc</a> — confirms Stripe + SafeSave</li>
+  <li><a href="https://courtreserve.com/courtreserve-vs-playbypoint-playtomic-opencourt-podplay/">CR's own competitive positioning page</a></li>
+  <li><a href="https://playtomic.com/pricing">Playtomic pricing</a></li>
+  <li><a href="https://www.clubexpress.com/pricing">ClubExpress pricing</a></li>
+  <li><a href="https://joinit.com/blog/best-pickleball-club-management-software">JoinIt industry roundup</a> (competitor source, but specifics corroborated)</li>
+</ul>
+
+<footer class="doc-foot">
+  <p>Deep-research workflow · 101 agents · 19 sources fetched · 77 claims extracted · 25 verified · 17 confirmed · 8 refuted.</p>
+</footer>
+
+</div>
+</body>
+</html>

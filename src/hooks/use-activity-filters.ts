@@ -48,15 +48,15 @@ export function getDateRange(range: DateRange): DateRangeResult | undefined {
 
 const VALID_RANGES: DateRange[] = ["today", "week", "month", "all"];
 
-export function useActivityFilters(): ActivityFilters & ActivityFilterActions & { queryParams: Record<string, string> } {
+export function useActivityFilters(defaultRange: DateRange = "today"): ActivityFilters & ActivityFilterActions & { queryParams: Record<string, string> } {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
 
   const dateRange = useMemo(() => {
     const v = searchParams.get("range") as DateRange | null;
-    return v && VALID_RANGES.includes(v) ? v : "today";
-  }, [searchParams]);
+    return v && VALID_RANGES.includes(v) ? v : defaultRange;
+  }, [searchParams, defaultRange]);
 
   const projectId = searchParams.get("project") || "all";
   const org = searchParams.get("org") || "all";
@@ -64,7 +64,10 @@ export function useActivityFilters(): ActivityFilters & ActivityFilterActions & 
   const updateParam = useCallback(
     (key: string, value: string) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (value === "all" || value === "today") {
+      // Drop the param when it equals its default so the URL stays clean.
+      // For "range" the default is page-specific; for project/org it's "all".
+      const isDefault = key === "range" ? value === defaultRange : value === "all";
+      if (isDefault) {
         params.delete(key);
       } else {
         params.set(key, value);
@@ -72,7 +75,7 @@ export function useActivityFilters(): ActivityFilters & ActivityFilterActions & 
       const qs = params.toString();
       router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
     },
-    [searchParams, router, pathname]
+    [searchParams, router, pathname, defaultRange]
   );
 
   const setDateRange = useCallback((range: DateRange) => updateParam("range", range), [updateParam]);
