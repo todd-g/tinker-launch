@@ -125,12 +125,16 @@ export function buildQueue(opts?: { startDate?: string; endDate?: string; minMin
 
   let written = 0;
   let skipped = 0;
-  const writeCluster = (clusterKey: string, snaps: DbSnapshot[]) => {
-    const clusterMinutes = snaps.reduce((sum, s) => sum + (s.durationSeconds ?? 10), 0) / 60;
-    if (clusterMinutes < minMinutes) { skipped++; return; }
-    written++;
+  const writeCluster = (clusterKey: string, snaps: DbSnapshot[], isMeeting: boolean) => {
     const startTs = Math.min(...snaps.map((s) => s.timestamp));
     const endTs = Math.max(...snaps.map((s) => s.timestamp));
+    const frontmostMin = snaps.reduce((sum, s) => sum + (s.durationSeconds ?? 10), 0) / 60;
+    // Meetings count the full wall-clock the call was up (span), not just frontmost samples —
+    // during a call you're often on a shared screen / browser, so frontmost badly undercounts.
+    // Span "tracks the longer one" automatically (a call that runs over → a longer span).
+    const clusterMinutes = isMeeting ? Math.max((endTs - startTs) / 60000, frontmostMin) : frontmostMin;
+    if (clusterMinutes < minMinutes) { skipped++; return; }
+    written++;
     assignmentQueue.upsertPending({
       clusterKey,
       day: toLocalDateString(snaps[0].timestamp),
@@ -145,10 +149,10 @@ export function buildQueue(opts?: { startDate?: string; endDate?: string; minMin
     });
   };
 
-  for (const [key, snaps] of regularGroups) writeCluster(key, snaps);
+  for (const [key, snaps] of regularGroups) writeCluster(key, snaps, false);
   for (const [key, snaps] of meetingGroups) {
     for (const block of splitContiguous(snaps, 15)) {
-      writeCluster(`${key}::b${Math.min(...block.map((s) => s.timestamp))}`, block);
+      writeCluster(`${key}::b${Math.min(...block.map((s) => s.timestamp))}`, block, true);
     }
   }
 
@@ -233,7 +237,22 @@ export function applyCluster(id: number, projectId: string): { assigned: number;
   if (!project) throw new Error(`project ${projectId} not found`);
 
   const ids: number[] = JSON.parse(cluster.snapshotIds);
-  const snaps = activitySnapshots.getByIds(ids);
+  let snaps = activitySnapshots.getByIds(ids);
+
+  // Meetings: stretch each sample to reach the next one so the block tiles its full wall-clock
+  // span (the call was up even while you looked at a shared screen). Makes the timeline + rollup
+  // credit the whole meeting to the project, not just Zoom-frontmost minutes.
+  if (isMeetingClusterRow(cluster) && snaps.length > 1) {
+    const sorted = [...snaps].sort((a, b) => a.timestamp - b.timestamp);
+    const updates = sorted.map((s, i) => {
+      const next = sorted[i + 1];
+      const dur = next ? Math.max(1, Math.round((next.timestamp - s.timestamp) / 1000)) : (s.durationSeconds ?? 10);
+      return { id: s.id!, durationSeconds: dur };
+    });
+    activitySnapshots.setDurations(updates);
+    const byId = new Map(updates.map((u) => [u.id, u.durationSeconds]));
+    snaps = snaps.map((s) => ({ ...s, durationSeconds: byId.get(s.id!) ?? s.durationSeconds }));
+  }
 
   activitySnapshots.assignMany(ids, projectId, project.projectName);
 

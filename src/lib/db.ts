@@ -632,6 +632,17 @@ export const activitySnapshots = {
     const placeholders = ids.map(() => "?").join(",");
     return db.prepare(`SELECT * FROM activitySnapshots WHERE id IN (${placeholders})`).all(...ids) as DbSnapshot[];
   },
+
+  /** Set per-snapshot durations (used to stretch a meeting block to its full wall-clock span). */
+  setDurations(updates: Array<{ id: number; durationSeconds: number }>): void {
+    if (updates.length === 0) return;
+    const db = getDb();
+    const stmt = db.prepare("UPDATE activitySnapshots SET durationSeconds = ? WHERE id = ?");
+    const run = db.transaction((rows: typeof updates) => {
+      for (const u of rows) stmt.run(u.durationSeconds, u.id);
+    });
+    run(updates);
+  },
 };
 
 // ──────────────────────────────────────────────
