@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from "fs/promises";
+import { readFile, writeFile, mkdir, chmod } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import YAML from "yaml";
@@ -54,8 +54,17 @@ export function getCredentialsPath(): string {
 async function ensureCredentialsDir(): Promise<void> {
   const dir = getCredentialsDir();
   if (!existsSync(dir)) {
-    await mkdir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
   }
+}
+
+/**
+ * Write a file that holds secrets (credentials.yaml, .envrc) as owner-only (0600).
+ * `mode` only applies when the file is created, so chmod existing files too.
+ */
+export async function writeSecretFile(filePath: string, content: string): Promise<void> {
+  await writeFile(filePath, content, { mode: 0o600 });
+  await chmod(filePath, 0o600);
 }
 
 /**
@@ -69,7 +78,7 @@ export async function readCredentials(): Promise<Credentials> {
     if (!existsSync(credPath)) {
       // Create default credentials file
       await ensureCredentialsDir();
-      await writeFile(credPath, YAML.stringify(DEFAULT_CREDENTIALS));
+      await writeSecretFile(credPath, YAML.stringify(DEFAULT_CREDENTIALS));
       return DEFAULT_CREDENTIALS;
     }
 
@@ -96,7 +105,7 @@ export async function readCredentials(): Promise<Credentials> {
 export async function writeCredentials(credentials: Credentials): Promise<void> {
   await ensureCredentialsDir();
   const credPath = getCredentialsPath();
-  await writeFile(credPath, YAML.stringify(credentials));
+  await writeSecretFile(credPath, YAML.stringify(credentials));
 }
 
 /**
@@ -467,7 +476,7 @@ export async function regenerateEnvrcForProject(
   const linearKey = linearSlug ? getLinearKey(credentials, linearSlug) : undefined;
   const neonKey = neonOrgSlug ? getNeonKey(credentials, neonOrgSlug) : undefined;
   const envrcContent = generateEnvrcContent(account, convexKeys, linearKey, neonKey);
-  await writeFile(envrcPath, envrcContent);
+  await writeSecretFile(envrcPath, envrcContent);
 
   return { regenerated: true };
 }

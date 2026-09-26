@@ -11,6 +11,7 @@ import {
   getNeonKey,
   generateEnvrcContent,
   generateCliShContent,
+  writeSecretFile,
 } from "@/lib/credentials";
 import { getProjectGitInfo } from "@/lib/github";
 import { projects as projectsDb } from "@/lib/db";
@@ -112,12 +113,12 @@ export async function POST(request: Request) {
 
     // Generate .envrc with account's Vercel token, project's Convex keys, Linear key, and Neon key
     const envrcContent = generateEnvrcContent(account, convexKeys, linearKey, neonKey);
-    await writeFile(envrcPath, envrcContent);
+    await writeSecretFile(envrcPath, envrcContent);
 
-    // Generate cli.sh
+    // Generate cli.sh (sources .envrc, so keep it owner-only too)
     const cliShContent = generateCliShContent();
-    await writeFile(cliShPath, cliShContent);
-    await chmod(cliShPath, 0o755);
+    await writeFile(cliShPath, cliShContent, { mode: 0o700 });
+    await chmod(cliShPath, 0o700);
 
     // Update .gitignore to include .envrc if not already present
     let gitignoreUpdated = false;

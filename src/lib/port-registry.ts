@@ -1,7 +1,13 @@
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+function assertValidPort(port: number): void {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid port: ${port}`);
+  }
+}
 
 export interface PortStatus {
   port: number;
@@ -13,8 +19,9 @@ export interface PortStatus {
  * Check if a process is running on a specific port
  */
 export async function checkPort(port: number): Promise<PortStatus> {
+  assertValidPort(port);
   try {
-    const { stdout } = await execAsync(`lsof -i :${port} -t`);
+    const { stdout } = await execFileAsync("lsof", ["-i", `:${port}`, "-t"]);
     const pid = parseInt(stdout.trim().split("\n")[0], 10);
     return { port, isRunning: !isNaN(pid), pid: isNaN(pid) ? undefined : pid };
   } catch {
@@ -51,7 +58,7 @@ export async function killPort(port: number): Promise<boolean> {
   try {
     const status = await checkPort(port);
     if (status.pid) {
-      await execAsync(`kill ${status.pid}`);
+      process.kill(status.pid, "SIGTERM");
       return true;
     }
     return false;

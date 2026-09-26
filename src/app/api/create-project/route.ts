@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createGitHubRepo, initGitRepo } from "@/lib/github";
+import { createGitHubRepo, initGitRepo, assertValidGitHubNames } from "@/lib/github";
 import { scaffoldProject } from "@/lib/scaffolding";
 import { readCredentials, getGitAuthorForOrg } from "@/lib/credentials";
 
@@ -11,6 +11,16 @@ export async function POST(request: Request) {
     if (!repoName || !projectName || !org || !description) {
       return NextResponse.json(
         { success: false, error: "Missing required fields" },
+        { status: 400 }
+      );
+    }
+
+    // repoName/org become CLI args and a local path segment — reject anything odd up front
+    try {
+      assertValidGitHubNames(org, repoName);
+    } catch (e) {
+      return NextResponse.json(
+        { success: false, error: (e as Error).message },
         { status: 400 }
       );
     }

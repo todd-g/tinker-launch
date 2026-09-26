@@ -1,9 +1,24 @@
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export type GitHubOrg = string;
+
+// GitHub owner/repo names are limited to this charset; enforcing it also keeps
+// the values safe to use as CLI args and path segments.
+const GITHUB_NAME_RE = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * Throw if org or repoName isn't a plain GitHub name (letters, digits, . _ -)
+ */
+export function assertValidGitHubNames(org: string, repoName: string): void {
+  for (const [label, value] of [["org", org], ["repoName", repoName]] as const) {
+    if (typeof value !== "string" || !GITHUB_NAME_RE.test(value) || value.startsWith("-") || value === "." || value === "..") {
+      throw new Error(`Invalid ${label} "${value}": only letters, digits, ".", "_" and "-" are allowed`);
+    }
+  }
+}
 
 export interface CreateRepoOptions {
   repoName: string;
@@ -23,13 +38,12 @@ export interface CreateRepoResult {
  */
 export async function createGitHubRepo(options: CreateRepoOptions): Promise<CreateRepoResult> {
   const { repoName, org, description, isPrivate = true } = options;
+  assertValidGitHubNames(org, repoName);
   const visibility = isPrivate ? "--private" : "--public";
   const fullName = `${org}/${repoName}`;
 
   try {
-    await execAsync(
-      `gh repo create ${fullName} ${visibility} --description "${description.replace(/"/g, '\\"')}"`
-    );
+    await execFileAsync("gh", ["repo", "create", fullName, visibility, `--description=${description}`]);
     return {
       success: true,
       githubUrl: `https://github.com/${fullName}`,
@@ -47,8 +61,8 @@ export async function createGitHubRepo(options: CreateRepoOptions): Promise<Crea
  */
 export async function initGitRepo(localPath: string, githubUrl: string): Promise<boolean> {
   try {
-    await execAsync(`git init`, { cwd: localPath });
-    await execAsync(`git remote add origin ${githubUrl}.git`, { cwd: localPath });
+    await execFileAsync("git", ["init"], { cwd: localPath });
+    await execFileAsync("git", ["remote", "add", "origin", `${githubUrl}.git`], { cwd: localPath });
     return true;
   } catch {
     return false;
@@ -60,7 +74,7 @@ export async function initGitRepo(localPath: string, githubUrl: string): Promise
  */
 export async function isGhAuthenticated(): Promise<boolean> {
   try {
-    await execAsync("gh auth status");
+    await execFileAsync("gh", ["auth", "status"]);
     return true;
   } catch {
     return false;
@@ -106,7 +120,7 @@ export function parseGitRemoteRepo(remoteUrl: string): string | null {
  */
 export async function getGitRemoteUrl(localPath: string): Promise<string | null> {
   try {
-    const { stdout } = await execAsync("git remote get-url origin", { cwd: localPath });
+    const { stdout } = await execFileAsync("git", ["remote", "get-url", "origin"], { cwd: localPath });
     return stdout.trim();
   } catch {
     return null;

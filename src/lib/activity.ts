@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 
 interface ProjectInfo {
   _id: string;
@@ -1040,8 +1040,8 @@ function installLaunchAgent(agentName: string, scriptFile: string): void {
   plistContent = plistContent.replace(/__LOG_DIR__/g, LOG_DIR);
   fs.writeFileSync(PLIST_PATH, plistContent);
 
-  try { execSync(`launchctl unload "${PLIST_PATH}" 2>/dev/null`); } catch { /* ignore */ }
-  execSync(`launchctl load "${PLIST_PATH}"`);
+  try { execFileSync("launchctl", ["unload", PLIST_PATH], { stdio: "ignore" }); } catch { /* ignore */ }
+  execFileSync("launchctl", ["load", PLIST_PATH]);
 }
 
 export function ensureDaemonInstalled(): void {

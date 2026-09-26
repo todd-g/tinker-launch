@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
-import { readFile, writeFile, readdir } from "fs/promises";
+import { readFile, writeFile, readdir, stat } from "fs/promises";
 import { existsSync, statSync } from "fs";
 import path from "path";
 import { findProjectFavicon } from "@/lib/favicon";
@@ -13,7 +13,24 @@ import {
   parseTailwindColor,
 } from "@/lib/colors";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+// Run a command without a shell. Mirrors `cmd 2>/dev/null || true`: stderr is
+// dropped and a non-zero exit still yields whatever stdout was produced.
+async function execQuiet(file: string, args: string[]): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(file, args);
+    return stdout;
+  } catch (err) {
+    return (err as { stdout?: string }).stdout ?? "";
+  }
+}
+
+// Run a one-line AppleScript via osascript (no shell quoting involved)
+async function osascript(script: string): Promise<string> {
+  const { stdout } = await execFileAsync("osascript", ["-e", script]);
+  return stdout;
+}
 
 interface PortEntry {
   port: number;
@@ -106,9 +123,7 @@ async function scanPorts(
   try {
     // Use lsof to find all listening TCP ports, then filter by range in code
     // The -sTCP:LISTEN flag already filters for listening ports
-    const { stdout } = await execAsync(
-      `lsof -iTCP -sTCP:LISTEN -P -n 2>/dev/null || true`
-    );
+    const stdout = await execQuiet("lsof", ["-iTCP", "-sTCP:LISTEN", "-P", "-n"]);
 
     if (!stdout.trim()) {
       return results;
@@ -188,12 +203,12 @@ async function checkSinglePort(
   appearance: "dark" | "light"
 ): Promise<PortInfo | null> {
   try {
-    const { stdout } = await execAsync(`lsof -i :${port} -t -sTCP:LISTEN 2>/dev/null`);
+    const { stdout } = await execFileAsync("lsof", ["-i", `:${port}`, "-t", "-sTCP:LISTEN"]);
     const pid = parseInt(stdout.trim().split("\n")[0], 10);
     if (isNaN(pid)) return null;
 
     // Get command name
-    const { stdout: psOut } = await execAsync(`ps -p ${pid} -o comm= 2>/dev/null`);
+    const { stdout: psOut } = await execFileAsync("ps", ["-p", String(pid), "-o", "comm="]);
     const command = psOut.trim();
 
     const cwd = await getProcessCwd(pid);
@@ -231,7 +246,9 @@ async function getProcessCwd(pid: number): Promise<string | undefined> {
   try {
     // macOS: use lsof with -a (AND) and -d cwd to get only the cwd file descriptor
     // This is much faster than the previous approach which returned all file descriptors
-    const { stdout } = await execAsync(`lsof -a -p ${pid} -d cwd 2>/dev/null | tail -1`);
+    const lsofOut = await execQuiet("lsof", ["-a", "-p", String(pid), "-d", "cwd"]);
+    // Equivalent of `| tail -1`: keep only the last line
+    const stdout = lsofOut.replace(/\n$/, "").split("\n").pop() ?? "";
     // Output format: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
     const parts = stdout.trim().split(/\s+/);
     if (parts.length >= 9) {
@@ -242,7 +259,7 @@ async function getProcessCwd(pid: number): Promise<string | undefined> {
   } catch {
     // Alternative: try pwdx on Linux
     try {
-      const { stdout } = await execAsync(`pwdx ${pid} 2>/dev/null`);
+      const { stdout } = await execFileAsync("pwdx", [String(pid)]);
       const match = stdout.match(/^\d+:\s*(.+)$/);
       return match ? match[1] : undefined;
     } catch {
@@ -440,9 +457,7 @@ async function syncTerminalColors(): Promise<void> {
     const appearance = await getMacOSAppearance();
 
     // Get window count
-    const { stdout: countOut } = await execAsync(
-      `osascript -e 'tell application "Terminal" to count of windows'`
-    );
+    const countOut = await osascript('tell application "Terminal" to count of windows');
     const windowCount = parseInt(countOut.trim(), 10);
     if (!windowCount || windowCount === 0) return;
 
@@ -450,30 +465,25 @@ async function syncTerminalColors(): Promise<void> {
     for (let w = 1; w <= Math.min(windowCount, 50); w++) {
       try {
         // Get tab count for this window
-        const { stdout: tabCountOut } = await execAsync(
-          `osascript -e 'tell application "Terminal" to count of tabs of window ${w}'`
-        );
+        const tabCountOut = await osascript(`tell application "Terminal" to count of tabs of window ${w}`);
         const tabCount = parseInt(tabCountOut.trim(), 10);
         if (!tabCount) continue;
 
         for (let t = 1; t <= tabCount; t++) {
           try {
             // Get TTY for this tab
-            const { stdout: ttyOut } = await execAsync(
-              `osascript -e 'tell application "Terminal" to tty of tab ${t} of window ${w}'`
-            );
+            const ttyOut = await osascript(`tell application "Terminal" to tty of tab ${t} of window ${w}`);
             const tty = ttyOut.trim();
-            if (!tty) continue;
+            // Only accept a real device path (e.g. /dev/ttys003) before handing it to lsof
+            if (!/^\/dev\/tty[A-Za-z0-9]+$/.test(tty)) continue;
 
             // Get PIDs for this TTY
-            const { stdout: pidsOut } = await execAsync(`lsof -t ${tty} 2>/dev/null || true`);
-            const pids = pidsOut.trim().split("\n").filter(Boolean);
+            const pidsOut = await execQuiet("lsof", ["-t", tty]);
+            const pids = pidsOut.trim().split("\n").filter((p) => /^\d+$/.test(p));
 
             let cwd: string | undefined;
             for (const pid of pids) {
-              const { stdout: cwdOut } = await execAsync(
-                `lsof -a -p ${pid} -d cwd -Fn 2>/dev/null || true`
-              );
+              const cwdOut = await execQuiet("lsof", ["-a", "-p", pid, "-d", "cwd", "-Fn"]);
               for (const line of cwdOut.split("\n")) {
                 if (line.startsWith("n") && line.length > 1) {
                   cwd = line.slice(1);
@@ -501,10 +511,13 @@ async function syncTerminalColors(): Promise<void> {
 
             // Convert to Terminal.app scale (0-65535)
             const termRgb = rgbToTerminalScale(rgb);
+            // Rounded so only plain integers are interpolated into the AppleScript source
+            const [r, g, b] = [termRgb.r, termRgb.g, termRgb.b].map(Math.round);
+            if (![r, g, b].every(Number.isFinite)) continue;
 
             // Set the background color
-            await execAsync(
-              `osascript -e 'tell application "Terminal" to set background color of tab ${t} of window ${w} to {${termRgb.r}, ${termRgb.g}, ${termRgb.b}}'`
+            await osascript(
+              `tell application "Terminal" to set background color of tab ${t} of window ${w} to {${r}, ${g}, ${b}}`
             );
             console.log(`Set terminal color for window ${w}, tab ${t}: ${colorStr} (${appearance} mode)`);
           } catch {
@@ -541,12 +554,20 @@ async function buildPortRegistry(
     if (!existsSync(baseDir)) continue;
 
     try {
-      // List immediate subdirectories (project folders)
-      const { stdout } = await execAsync(`ls -d "${baseDir}"/*/ 2>/dev/null || true`);
-      const dirs = stdout.trim().split("\n").filter(Boolean);
+      // List immediate subdirectories (project folders) — same set as the
+      // `ls -d dir/*/` glob: non-hidden, sorted, symlinks to dirs included
+      const entries = await readdir(baseDir, { withFileTypes: true });
+      const dirs: string[] = [];
+      for (const entry of entries) {
+        if (entry.name.startsWith(".")) continue;
+        const full = path.join(baseDir, entry.name);
+        if (entry.isDirectory() || (entry.isSymbolicLink() && (await stat(full).catch(() => null))?.isDirectory())) {
+          dirs.push(full);
+        }
+      }
+      dirs.sort();
 
-      for (const dir of dirs) {
-        const projectDir = dir.replace(/\/$/, "");
+      for (const projectDir of dirs) {
 
         // Auto-update yaml with detected colors if needed
         await autoUpdateTinkerYaml(projectDir);
@@ -587,9 +608,8 @@ async function buildPortRegistry(
  */
 async function getMacOSAppearance(): Promise<"dark" | "light"> {
   try {
-    const { stdout } = await execAsync(
-      "defaults read -g AppleInterfaceStyle 2>/dev/null || echo 'Light'"
-    );
+    // Exits non-zero when the key is unset (i.e. Light mode)
+    const { stdout } = await execFileAsync("defaults", ["read", "-g", "AppleInterfaceStyle"]);
     return stdout.trim().toLowerCase() === "dark" ? "dark" : "light";
   } catch {
     return "light"; // Default to light mode

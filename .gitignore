@@ -46,3 +46,15 @@ next-env.d.ts
 # Context and screenshots
 .context/
 .playwright-mcp/
+
+# Local data, secrets and agent scratch — never publish (public repo)
+*.db
+*.db-*
+credentials.yaml
+.claude/tmp/
+.claude/worktrees/
+.claude/settings.local.json
+
+# Client-specific (Minima) devops docs — kept on disk, out of the public repo
+/docs/brainstorms/minima-devops-*
+/docs/brainstorms/pdf/minima-devops-*

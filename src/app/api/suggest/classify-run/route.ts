@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { jobRuns } from "@/lib/db";
+import { headlessSkillArgs, curlRulesFor } from "@/lib/headless-agent";
 
 // Spawn the LLM classifier locally: `claude -p "/classify-unassigned"`. Runs async (the child
 // outlives the request in the long-lived `next start` process); the jobRun is finished by the
@@ -10,6 +11,15 @@ import { jobRuns } from "@/lib/db";
 // Calendar), so the skill's calendar *sync* step may be skipped here — it still classifies using
 // already-ingested calendar events + URL/title/adjacency. Run /classify-unassigned interactively
 // for a fresh calendar pull.
+//
+// Permissions are locked to curl against /api/suggest/* + /api/calendar/* and the two read-only
+// Google Calendar connector tools the skill uses (see headless-agent.ts).
+const CLASSIFY_TOOLS = [
+  ...curlRulesFor(["suggest", "calendar"]),
+  "mcp__claude_ai_Google_Calendar__list_calendars",
+  "mcp__claude_ai_Google_Calendar__list_events",
+];
+
 export async function POST() {
   // Don't allow overlapping runs.
   const recent = jobRuns.list({ job: "assign_classify", limit: 1 });
@@ -21,7 +31,7 @@ export async function POST() {
   try {
     const child = spawn(
       "claude",
-      ["-p", "/classify-unassigned", "--permission-mode", "bypassPermissions", "--output-format", "json"],
+      headlessSkillArgs("classify-unassigned", { allowedTools: CLASSIFY_TOOLS, useMcp: true }),
       // stdio[0]='ignore' closes stdin → avoids the 3s "no stdin" wait + warning that corrupts JSON output.
       { cwd: process.cwd(), env: process.env, stdio: ["ignore", "pipe", "pipe"] }
     );
