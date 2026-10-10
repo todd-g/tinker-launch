@@ -137,6 +137,10 @@ const staticNavMain = [
         url: "/settings/credentials",
       },
       {
+        title: "OpenRouter",
+        url: "/settings/openrouter",
+      },
+      {
         title: "Templates",
         url: "/settings",
       },

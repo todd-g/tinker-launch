@@ -17,12 +17,27 @@ export interface ConvexKeys {
   dev?: string;
 }
 
+export interface OpenRouterProjectKey {
+  hash: string;          // OpenRouter key hash (stable id used by the management API)
+  key?: string;          // plaintext inference key (secret); absent = tracking-only link
+  workspace_id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface OpenRouterCredentials {
+  management_key?: string;                            // management key — can mint/list keys, cannot do inference
+  org_workspaces: Record<string, string>;             // Tinker org -> OpenRouter workspace_id (default for new keys)
+  project_keys: Record<string, OpenRouterProjectKey>; // keyed by repo name
+}
+
 export interface Credentials {
   accounts: Record<string, Account>;
   org_mapping: Record<string, string>;
   convex_keys: Record<string, ConvexKeys>;  // keyed by repo name
   linear_keys: Record<string, string>;      // keyed by Linear workspace slug
   neon_keys: Record<string, string>;        // keyed by Neon org slug (free-form identifier)
+  openrouter: OpenRouterCredentials;
 }
 
 // Default credentials structure
@@ -32,7 +47,21 @@ const DEFAULT_CREDENTIALS: Credentials = {
   convex_keys: {},
   linear_keys: {},
   neon_keys: {},
+  openrouter: { org_workspaces: {}, project_keys: {} },
 };
+
+/**
+ * Normalize the openrouter section so a partial/missing YAML block never drops data
+ * on the next write. Never emits `management_key: undefined` (keeps the YAML clean).
+ */
+function normalizeOpenRouter(raw: Partial<OpenRouterCredentials> | undefined | null): OpenRouterCredentials {
+  const out: OpenRouterCredentials = {
+    org_workspaces: { ...(raw?.org_workspaces || {}) },
+    project_keys: { ...(raw?.project_keys || {}) },
+  };
+  if (raw?.management_key) out.management_key = raw.management_key;
+  return out;
+}
 
 /**
  * Get the path to the credentials directory
@@ -67,6 +96,49 @@ export async function writeSecretFile(filePath: string, content: string): Promis
   await chmod(filePath, 0o600);
 }
 
+// Vars generateEnvrcContent owns. Anything else in a project's .envrc was added by hand
+// (Sentry, PostHog, QA passwords, ...) and must survive regeneration.
+const MANAGED_ENVRC_VARS = new Set([
+  "VERCEL_TOKEN",
+  "CONVEX_DEPLOY_KEY",
+  "CONVEX_DEPLOY_KEY_PREVIEW",
+  "CONVEX_DEPLOY_KEY_DEV",
+  "LINEAR_API_KEY",
+  "NEON_API_KEY",
+  "OPENROUTER_API_KEY",
+]);
+
+function isGeneratedEnvrcLine(line: string): boolean {
+  const exportMatch = line.match(/^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=/);
+  if (exportMatch) return MANAGED_ENVRC_VARS.has(exportMatch[1]);
+  const t = line.trim();
+  return (
+    t === "# Tinker Launch generated credentials" ||
+    t.startsWith("# Account: ") ||
+    t === "# DO NOT commit this file to git"
+  );
+}
+
+/**
+ * Merge freshly generated .envrc content with an existing file: the managed vars and header
+ * are replaced, every other line (hand-added exports, comments) is kept below them.
+ * Idempotent — regenerating twice yields the same file.
+ */
+export function mergeEnvrcContent(generated: string, existing: string | null): string {
+  if (!existing) return generated;
+  const kept = existing.split("\n").filter((line) => !isGeneratedEnvrcLine(line));
+  while (kept.length && !kept[0].trim()) kept.shift();
+  while (kept.length && !kept[kept.length - 1].trim()) kept.pop();
+  if (!kept.length) return generated;
+  return `${generated}\n${kept.join("\n")}\n`;
+}
+
+/** Write a project's .envrc, preserving any hand-added lines already in it. */
+export async function writeEnvrc(envrcPath: string, generated: string): Promise<void> {
+  const existing = existsSync(envrcPath) ? await readFile(envrcPath, "utf-8") : null;
+  await writeSecretFile(envrcPath, mergeEnvrcContent(generated, existing));
+}
+
 /**
  * Read credentials from ~/.tinker-launch/credentials.yaml
  * Creates default file if it doesn't exist
@@ -79,7 +151,7 @@ export async function readCredentials(): Promise<Credentials> {
       // Create default credentials file
       await ensureCredentialsDir();
       await writeSecretFile(credPath, YAML.stringify(DEFAULT_CREDENTIALS));
-      return DEFAULT_CREDENTIALS;
+      return structuredClone(DEFAULT_CREDENTIALS);
     }
 
     const content = await readFile(credPath, "utf-8");
@@ -92,10 +164,11 @@ export async function readCredentials(): Promise<Credentials> {
       convex_keys: parsed.convex_keys || {},
       linear_keys: parsed.linear_keys || {},
       neon_keys: parsed.neon_keys || {},
+      openrouter: normalizeOpenRouter(parsed.openrouter),
     };
   } catch (error) {
     console.error("Error reading credentials:", error);
-    return DEFAULT_CREDENTIALS;
+    return structuredClone(DEFAULT_CREDENTIALS);
   }
 }
 
@@ -166,7 +239,8 @@ export function generateEnvrcContent(
   account: Account,
   convexKeys?: ConvexKeys,
   linearKey?: string,
-  neonKey?: string
+  neonKey?: string,
+  openRouterKey?: string
 ): string {
   let content = `# Tinker Launch generated credentials
 # Account: ${account.name}
@@ -197,6 +271,11 @@ export VERCEL_TOKEN="${account.vercel_token}"
 
   if (neonKey) {
     content += `export NEON_API_KEY="${neonKey}"
+`;
+  }
+
+  if (openRouterKey) {
+    content += `export OPENROUTER_API_KEY="${openRouterKey}"
 `;
   }
 
@@ -303,6 +382,73 @@ export async function deleteNeonKey(neonOrgSlug: string): Promise<void> {
 }
 
 /**
+ * Get the OpenRouter inference key (secret) for a project, if one was minted here.
+ * Tracking-only links have no secret and return undefined.
+ */
+export function getOpenRouterKey(
+  credentials: Credentials,
+  repoName: string
+): string | undefined {
+  return credentials.openrouter?.project_keys?.[repoName]?.key || undefined;
+}
+
+/**
+ * Get the full OpenRouter key record (hash, workspace, optional secret) for a project
+ */
+export function getOpenRouterProjectKey(
+  credentials: Credentials,
+  repoName: string
+): OpenRouterProjectKey | undefined {
+  return credentials.openrouter?.project_keys?.[repoName];
+}
+
+/**
+ * Set (add or replace) the OpenRouter key record for a project
+ */
+export async function setOpenRouterProjectKey(
+  repoName: string,
+  record: OpenRouterProjectKey
+): Promise<Credentials> {
+  const credentials = await readCredentials();
+  credentials.openrouter.project_keys[repoName] = record;
+  await writeCredentials(credentials);
+  return credentials;
+}
+
+/**
+ * Remove the OpenRouter key record for a project (does NOT revoke it on OpenRouter)
+ */
+export async function deleteOpenRouterProjectKey(repoName: string): Promise<Credentials> {
+  const credentials = await readCredentials();
+  delete credentials.openrouter.project_keys[repoName];
+  await writeCredentials(credentials);
+  return credentials;
+}
+
+/**
+ * Set or clear (undefined) the OpenRouter management key
+ */
+export async function setOpenRouterManagementKey(key: string | undefined): Promise<void> {
+  const credentials = await readCredentials();
+  if (key) credentials.openrouter.management_key = key;
+  else delete credentials.openrouter.management_key;
+  await writeCredentials(credentials);
+}
+
+/**
+ * Map a Tinker org to its default OpenRouter workspace (null clears the mapping)
+ */
+export async function setOpenRouterOrgWorkspace(
+  org: string,
+  workspaceId: string | null
+): Promise<void> {
+  const credentials = await readCredentials();
+  if (workspaceId) credentials.openrouter.org_workspaces[org] = workspaceId;
+  else delete credentials.openrouter.org_workspaces[org];
+  await writeCredentials(credentials);
+}
+
+/**
  * Generate cli.sh content
  */
 export function generateCliShContent(): string {
@@ -343,6 +489,10 @@ export function getMaskedCredentials(credentials: Credentials): Credentials {
     convex_keys: {},
     linear_keys: {},
     neon_keys: {},
+    openrouter: {
+      org_workspaces: { ...(credentials.openrouter?.org_workspaces || {}) },
+      project_keys: {},
+    },
   };
 
   for (const [key, account] of Object.entries(credentials.accounts)) {
@@ -368,6 +518,14 @@ export function getMaskedCredentials(credentials: Credentials): Credentials {
 
   for (const [slug, key] of Object.entries(credentials.neon_keys || {})) {
     masked.neon_keys[slug] = maskToken(key);
+  }
+
+  if (credentials.openrouter?.management_key) {
+    masked.openrouter.management_key = maskToken(credentials.openrouter.management_key);
+  }
+  for (const [repoName, rec] of Object.entries(credentials.openrouter?.project_keys || {})) {
+    const { key, ...rest } = rec;
+    masked.openrouter.project_keys[repoName] = key ? { ...rest, key: maskToken(key) } : rest;
   }
 
   return masked;
@@ -475,8 +633,9 @@ export async function regenerateEnvrcForProject(
   const convexKeys = getConvexKeys(credentials, repoName);
   const linearKey = linearSlug ? getLinearKey(credentials, linearSlug) : undefined;
   const neonKey = neonOrgSlug ? getNeonKey(credentials, neonOrgSlug) : undefined;
-  const envrcContent = generateEnvrcContent(account, convexKeys, linearKey, neonKey);
-  await writeSecretFile(envrcPath, envrcContent);
+  const openRouterKey = getOpenRouterKey(credentials, repoName);
+  const envrcContent = generateEnvrcContent(account, convexKeys, linearKey, neonKey, openRouterKey);
+  await writeEnvrc(envrcPath, envrcContent);
 
   return { regenerated: true };
 }

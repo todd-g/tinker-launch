@@ -105,6 +105,7 @@ export default function DocsPage() {
                 <li><a href="#creating-a-project" className="hover:text-foreground hover:underline">Creating a Project</a></li>
                 <li><a href="#tinker-yaml" className="hover:text-foreground hover:underline">.tinker.yaml Config</a></li>
                 <li><a href="#credentials" className="hover:text-foreground hover:underline">Credentials System</a></li>
+                <li><a href="#openrouter" className="hover:text-foreground hover:underline">OpenRouter Keys &amp; Usage</a></li>
                 <li><a href="#port-scanner" className="hover:text-foreground hover:underline">Port Scanner</a></li>
                 <li><a href="#importing-projects" className="hover:text-foreground hover:underline">Importing Existing Projects</a></li>
                 <li><a href="#activity-tracking" className="hover:text-foreground hover:underline">Activity Tracking</a></li>
@@ -659,6 +660,89 @@ terminal:
               <Callout variant="info">
                 Tokens are masked in the dashboard UI (showing first 4 + last 4 characters)
                 so you can verify which token is configured without exposing the full value.
+              </Callout>
+            </section>
+
+            <Separator />
+
+            {/* ── OpenRouter ── */}
+            <section id="openrouter" className="space-y-4 scroll-mt-20">
+              <h2 className="text-2xl font-semibold tracking-tight">OpenRouter Keys &amp; Usage</h2>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                Projects call LLMs through one OpenRouter account instead of separate provider keys.
+                Tinker Launch mints one OpenRouter key per project, writes it into the project&apos;s
+                environment, and tracks what each key spends. Everything lives
+                in <strong>Settings &rarr; OpenRouter</strong>.
+              </p>
+
+              <h3 className="text-lg font-medium">Management key</h3>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                A management key is an admin credential for the OpenRouter account: it can create, list,
+                update, and delete API keys and workspaces, and read their usage, but it can&apos;t run
+                inference. Create one at openrouter.ai &rarr; Settings &rarr; Management keys and paste it on
+                the OpenRouter settings page. It&apos;s checked against OpenRouter before it&apos;s saved
+                to <InlineCode>credentials.yaml</InlineCode> under <InlineCode>openrouter.management_key</InlineCode>,
+                and it is never sent to the browser.
+              </p>
+
+              <h3 className="text-lg font-medium">Workspaces = paying entities</h3>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                Each workspace groups the keys of one paying entity (an org or a client). Map a Tinker org
+                to a workspace in the <em>Org &rarr; workspace</em> table. Only projects in a mapped org can
+                get a key. Orgs default to <em>Not in OpenRouter</em>, so personal and other orgs stay out of
+                the account unless you map them. The mapping is also the default workspace for new keys.
+              </p>
+
+              <h3 className="text-lg font-medium">One key per project</h3>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                <em>Create key</em> mints a key named after the repo, in the chosen workspace, with an
+                optional USD limit that can reset daily, weekly, or monthly. OpenRouter returns the secret only
+                once. Tinker Launch saves it right away
+                under <InlineCode>openrouter.project_keys.&lt;repo&gt;</InlineCode> and shows it to you once.
+                You can also <em>link</em> a key that already exists. A linked key is tracking-only: its usage
+                is attributed to the project, but Tinker Launch never has its secret.
+                <em> Unlink</em> only removes the record. <em>Revoke</em> deletes the key on OpenRouter as well.
+              </p>
+
+              <h3 className="text-lg font-medium">OPENROUTER_API_KEY in .envrc <AutoBadge /></h3>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                When a key is created, unlinked, or revoked, the project&apos;s <InlineCode>.envrc</InlineCode> is
+                regenerated. If the project has a key secret, the file
+                includes <InlineCode>export OPENROUTER_API_KEY=&quot;…&quot;</InlineCode>. <em>Generate</em> on the
+                Credentials page includes it too. Hand-added lines in <InlineCode>.envrc</InlineCode> (anything
+                that isn&apos;t a Tinker-managed var) are preserved on every regeneration. Deployed environments
+                don&apos;t read <InlineCode>.envrc</InlineCode>, so push the key yourself — but only to the runtime
+                that actually calls the model. Load the fresh <InlineCode>.envrc</InlineCode> inside the command:
+                direnv blocks a changed file until <InlineCode>direnv allow</InlineCode>, only re-exports at the next
+                prompt (so <InlineCode>direnv allow &amp;&amp; …</InlineCode> on one line still sees nothing), and a
+                blank <InlineCode>$OPENROUTER_API_KEY</InlineCode> gets pushed without any error.
+              </p>
+              <CodeBlock>{`# Model called from Convex actions (add --prod for the production deployment)
+bash -c 'source .envrc && npx convex env set OPENROUTER_API_KEY "$OPENROUTER_API_KEY"'
+
+# Model called from Vercel functions
+bash -c 'source .envrc && printf %s "$OPENROUTER_API_KEY" | vercel env add OPENROUTER_API_KEY production'
+
+# Model called from a local Next.js server only: nothing to push —
+# run \`direnv allow\`, then start the server from a new prompt`}</CodeBlock>
+
+              <h3 className="text-lg font-medium">Usage history <AutoBadge /></h3>
+              <p className="text-[0.9375rem] text-muted-foreground">
+                A sync lists every key in every workspace and stores one snapshot per key per UTC day in the
+                SQLite table <InlineCode>openrouterKeyUsage</InlineCode>. If a day has several syncs, the latest
+                one is kept. It runs when the OpenRouter page loads and the last successful sync is more than 10
+                minutes old, and from the <em>Sync usage</em> button. Each run is logged under <em>Sync runs</em>.
+                OpenRouter reports a key&apos;s <em>cumulative</em> spend, so the spend for a day is that
+                day&apos;s total minus the previous snapshot&apos;s total. These differences add up exactly over
+                any date range. If a day has no sync, its spend is counted on the next day that has one.
+                For a key&apos;s first snapshot, only that day&apos;s spend is counted, not anything it spent
+                before tracking began.
+              </p>
+
+              <Callout variant="info">
+                Billing is pooled: OpenRouter sends one invoice for the whole account. To rebill a client,
+                filter usage by that client&apos;s workspace (on openrouter.ai, or from the snapshot history
+                here) and invoice that amount.
               </Callout>
             </section>
 

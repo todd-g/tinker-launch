@@ -9,9 +9,10 @@ import {
   getConvexKeys,
   getLinearKey,
   getNeonKey,
+  getOpenRouterKey,
   generateEnvrcContent,
   generateCliShContent,
-  writeSecretFile,
+  writeEnvrc,
 } from "@/lib/credentials";
 import { getProjectGitInfo } from "@/lib/github";
 import { projects as projectsDb } from "@/lib/db";
@@ -96,6 +97,9 @@ export async function POST(request: Request) {
     // Get Neon API key via project's neonOrgSlug
     const neonKey = project?.neonOrgSlug ? getNeonKey(credentials, project.neonOrgSlug) : undefined;
 
+    // Get the project's OpenRouter inference key (minted in Settings > OpenRouter)
+    const openRouterKey = getOpenRouterKey(credentials, repoName);
+
     // Check if at least Vercel token is configured
     if (!account.vercel_token) {
       return NextResponse.json(
@@ -111,9 +115,9 @@ export async function POST(request: Request) {
     const cliShPath = path.join(projectPath, "cli.sh");
     const gitignorePath = path.join(projectPath, ".gitignore");
 
-    // Generate .envrc with account's Vercel token, project's Convex keys, Linear key, and Neon key
-    const envrcContent = generateEnvrcContent(account, convexKeys, linearKey, neonKey);
-    await writeSecretFile(envrcPath, envrcContent);
+    // Generate .envrc with account's Vercel token, project's Convex keys, Linear, Neon, and OpenRouter keys
+    const envrcContent = generateEnvrcContent(account, convexKeys, linearKey, neonKey, openRouterKey);
+    await writeEnvrc(envrcPath, envrcContent);
 
     // Generate cli.sh (sources .envrc, so keep it owner-only too)
     const cliShContent = generateCliShContent();
@@ -149,6 +153,7 @@ This project uses credential files managed by Tinker Launch. The \`.envrc\` file
 - \`CONVEX_DEPLOY_KEY\` / \`_PREVIEW\` / \`_DEV\` — Convex deploy keys (per-project)
 - \`LINEAR_API_KEY\` — Linear GraphQL API key (per workspace slug)
 - \`NEON_API_KEY\` — Neon CLI / API key (per Neon org slug)
+- \`OPENROUTER_API_KEY\` — OpenRouter inference key (per project)
 
 **Using cli.sh (recommended for agents):**
 \`\`\`bash
@@ -181,6 +186,7 @@ neon projects list
       hasConvexKeys: !!(convexKeys?.production || convexKeys?.preview),
       hasLinearKey: !!linearKey,
       hasNeonKey: !!neonKey,
+      hasOpenRouterKey: !!openRouterKey,
       files: {
         envrc: envrcPath,
         cliSh: cliShPath,

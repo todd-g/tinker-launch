@@ -25,7 +25,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useDbQuery, useDbMutation } from "@/hooks/use-db";
 import { useState, useEffect } from "react";
-import { Save, RotateCcw, Key, ChevronRight, FolderSearch, Folders, Building2 } from "lucide-react";
+import { Save, RotateCcw, Key, ChevronRight, FolderSearch, Folders, Building2, Waypoints } from "lucide-react";
 import Link from "next/link";
 
 const DEFAULT_TECH_STACK = `# Tech Stack
@@ -72,6 +72,7 @@ This project uses credential files managed by Tinker Launch. The \`.envrc\` file
 - \`CONVEX_DEPLOY_KEY\` / \`_PREVIEW\` / \`_DEV\` — Convex deploy keys (per-project)
 - \`LINEAR_API_KEY\` — Linear GraphQL API key (per workspace slug)
 - \`NEON_API_KEY\` — Neon CLI / API key (per Neon org slug)
+- \`OPENROUTER_API_KEY\` — OpenRouter inference key (per project)
 
 **Using cli.sh (recommended for agents):**
 \`\`\`bash
@@ -213,6 +214,28 @@ export default function SettingsPage() {
                       <CardTitle className="text-base">Credentials</CardTitle>
                       <CardDescription>
                         Manage Vercel/Convex accounts and org mappings
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </div>
+              </CardHeader>
+            </Card>
+          </Link>
+
+          {/* OpenRouter Link Card */}
+          <Link href="/settings/openrouter">
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-primary/10 p-2 rounded-lg">
+                      <Waypoints className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-base">OpenRouter</CardTitle>
+                      <CardDescription>
+                        Per-project API keys, client workspaces, and usage sync
                       </CardDescription>
                     </div>
                   </div>

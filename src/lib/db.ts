@@ -246,6 +246,32 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_calendarEvents_time ON calendarEvents(startTs, endTs);
   `);
 
+  // OpenRouter per-key usage snapshots — one row per key per UTC day, latest sync wins.
+  // `usage` is OpenRouter's cumulative lifetime spend; daily spend = delta between days.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS openrouterKeyUsage (
+      hash TEXT NOT NULL,
+      date TEXT NOT NULL,              -- UTC YYYY-MM-DD
+      name TEXT NOT NULL DEFAULT '',
+      label TEXT NOT NULL DEFAULT '',  -- masked key preview from OpenRouter (sk-or-v1-0e6...1c96)
+      workspaceId TEXT NOT NULL DEFAULT '',
+      usage REAL NOT NULL DEFAULT 0,   -- cumulative USD
+      usageDaily REAL NOT NULL DEFAULT 0,
+      usageWeekly REAL NOT NULL DEFAULT 0,
+      usageMonthly REAL NOT NULL DEFAULT 0,
+      limitUsd REAL,
+      limitRemaining REAL,
+      limitReset TEXT,
+      disabled INTEGER NOT NULL DEFAULT 0,
+      lastUsedAt TEXT,
+      createdAt TEXT,                  -- key creation time (ISO, from OpenRouter)
+      syncedAt INTEGER NOT NULL,
+      PRIMARY KEY (hash, date)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_openrouterKeyUsage_date ON openrouterKeyUsage(date);
+  `);
+
   // Migrations — add columns that may not exist yet
   const migrations = [
     "ALTER TABLE projects ADD COLUMN prodUrl TEXT NOT NULL DEFAULT ''",
@@ -1329,6 +1355,140 @@ export const jobRuns = {
     return db.prepare(
       "SELECT * FROM jobRuns WHERE job = ? AND account = ? AND status = 'success' ORDER BY startedAt DESC LIMIT 1"
     ).get(job, account) as DbJobRun | undefined;
+  },
+};
+
+// ──────────────────────────────────────────────
+// OpenRouter key usage (daily snapshots of cumulative spend per key)
+// ──────────────────────────────────────────────
+
+export interface DbOpenRouterKeyUsage {
+  hash: string;
+  date: string;            // UTC YYYY-MM-DD
+  name: string;
+  label: string;
+  workspaceId: string;
+  usage: number;           // cumulative USD at syncedAt
+  usageDaily: number;      // OpenRouter's current-UTC-day usage at syncedAt
+  usageWeekly: number;
+  usageMonthly: number;
+  limitUsd: number | null;
+  limitRemaining: number | null;
+  limitReset: string | null;
+  disabled: number;        // 0/1
+  lastUsedAt: string | null;
+  createdAt: string | null;
+  syncedAt: number;        // ms epoch
+}
+
+export interface OpenRouterDailySpend {
+  hash: string;
+  date: string;
+  name: string;
+  workspaceId: string;
+  spend: number;           // USD attributed to this day
+}
+
+export const openrouterKeyUsage = {
+  /** Upsert one snapshot per (hash, date); later syncs on the same UTC day overwrite earlier ones. */
+  upsertSnapshots(rows: DbOpenRouterKeyUsage[]): void {
+    const db = getDb();
+    const stmt = db.prepare(`
+      INSERT INTO openrouterKeyUsage (hash, date, name, label, workspaceId, usage, usageDaily, usageWeekly, usageMonthly,
+        limitUsd, limitRemaining, limitReset, disabled, lastUsedAt, createdAt, syncedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(hash, date) DO UPDATE SET
+        name = excluded.name,
+        label = excluded.label,
+        workspaceId = excluded.workspaceId,
+        usage = excluded.usage,
+        usageDaily = excluded.usageDaily,
+        usageWeekly = excluded.usageWeekly,
+        usageMonthly = excluded.usageMonthly,
+        limitUsd = excluded.limitUsd,
+        limitRemaining = excluded.limitRemaining,
+        limitReset = excluded.limitReset,
+        disabled = excluded.disabled,
+        lastUsedAt = excluded.lastUsedAt,
+        createdAt = excluded.createdAt,
+        syncedAt = excluded.syncedAt
+    `);
+    const insertMany = db.transaction((items: DbOpenRouterKeyUsage[]) => {
+      for (const r of items) {
+        stmt.run(r.hash, r.date, r.name, r.label, r.workspaceId, r.usage, r.usageDaily, r.usageWeekly, r.usageMonthly,
+          r.limitUsd, r.limitRemaining, r.limitReset, r.disabled, r.lastUsedAt, r.createdAt, r.syncedAt);
+      }
+    });
+    insertMany(rows);
+  },
+
+  /** Most recent snapshot for every key ever seen (including keys since deleted on OpenRouter). */
+  latestPerHash(): DbOpenRouterKeyUsage[] {
+    const db = getDb();
+    return db.prepare(`
+      SELECT u.* FROM openrouterKeyUsage u
+      JOIN (SELECT hash, MAX(date) AS maxDate FROM openrouterKeyUsage GROUP BY hash) m
+        ON u.hash = m.hash AND u.date = m.maxDate
+      ORDER BY u.name
+    `).all() as DbOpenRouterKeyUsage[];
+  },
+
+  /** All snapshots for one key, oldest first. */
+  history(hash: string, opts?: { startDate?: string; endDate?: string }): DbOpenRouterKeyUsage[] {
+    const db = getDb();
+    let sql = "SELECT * FROM openrouterKeyUsage WHERE hash = ?";
+    const params: unknown[] = [hash];
+    if (opts?.startDate) { sql += " AND date >= ?"; params.push(opts.startDate); }
+    if (opts?.endDate) { sql += " AND date <= ?"; params.push(opts.endDate); }
+    sql += " ORDER BY date";
+    return db.prepare(sql).all(...params) as DbOpenRouterKeyUsage[];
+  },
+
+  /**
+   * Per-key spend per UTC day in [startDate, endDate], from cumulative-usage deltas:
+   * spend(D) = usage(D) − usage(previous snapshot day). Deltas telescope, so summing a range
+   * equals the true cumulative change (gaps fold into the next synced day). A key's very
+   * first snapshot has no baseline, so it counts that day's usageDaily (pre-tracking lifetime
+   * spend is excluded). Negative deltas are clamped to 0.
+   */
+  dailySpend(opts: { startDate: string; endDate: string; hashes?: string[] }): OpenRouterDailySpend[] {
+    const db = getDb();
+    const params: unknown[] = [opts.endDate];
+    let hashClause = "";
+    if (opts.hashes) {
+      if (opts.hashes.length === 0) return [];
+      hashClause = ` AND hash IN (${opts.hashes.map(() => "?").join(", ")})`;
+      params.push(...opts.hashes);
+    }
+    params.push(opts.startDate);
+    const rows = db.prepare(`
+      SELECT hash, date, name, workspaceId, usage, usageDaily, prevUsage FROM (
+        SELECT hash, date, name, workspaceId, usage, usageDaily,
+          LAG(usage) OVER (PARTITION BY hash ORDER BY date) AS prevUsage
+        FROM openrouterKeyUsage
+        WHERE date <= ?${hashClause}
+      ) WHERE date >= ?
+      ORDER BY date, hash
+    `).all(...params) as Array<{ hash: string; date: string; name: string; workspaceId: string; usage: number; usageDaily: number; prevUsage: number | null }>;
+    return rows.map((r) => {
+      const raw = r.prevUsage === null ? r.usageDaily : r.usage - r.prevUsage;
+      return {
+        hash: r.hash,
+        date: r.date,
+        name: r.name,
+        workspaceId: r.workspaceId,
+        spend: Math.max(0, Math.round(raw * 1e6) / 1e6),
+      };
+    });
+  },
+
+  /** Total spend per key over [startDate, endDate] (sum of dailySpend). */
+  spendTotals(opts: { startDate: string; endDate: string; hashes?: string[] }): Record<string, number> {
+    const totals: Record<string, number> = {};
+    for (const d of openrouterKeyUsage.dailySpend(opts)) {
+      totals[d.hash] = Math.round(((totals[d.hash] ?? 0) + d.spend) * 1e6) / 1e6;
+    }
+    return totals;
   },
 };
 

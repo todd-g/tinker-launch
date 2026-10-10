@@ -66,6 +66,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 
 interface Account {
   name: string;
@@ -84,6 +85,9 @@ interface Credentials {
   convex_keys: Record<string, ConvexKeys>;
   linear_keys: Record<string, string>;
   neon_keys: Record<string, string>;
+  openrouter?: {
+    project_keys: Record<string, { hash: string; key?: string }>; // key is masked server-side
+  };
 }
 
 interface DirenvStatus {
@@ -984,6 +988,7 @@ export default function CredentialsPage() {
                       <TableHead>Convex Keys</TableHead>
                       <TableHead>Linear Key</TableHead>
                       <TableHead>Neon Key</TableHead>
+                      <TableHead>OpenRouter</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1000,6 +1005,8 @@ export default function CredentialsPage() {
 
                       const neonOrgSlug = project.neonOrgSlug;
                       const neonKey = neonOrgSlug ? credentials?.neon_keys?.[neonOrgSlug] : undefined;
+
+                      const openRouterKey = credentials?.openrouter?.project_keys?.[project.repoName];
 
                       return (
                         <TableRow key={project.id}>
@@ -1116,6 +1123,17 @@ export default function CredentialsPage() {
                             ) : (
                               <span className="text-xs text-muted-foreground">No slug</span>
                             )}
+                          </TableCell>
+                          <TableCell>
+                            <Link href="/settings/openrouter" className="inline-flex">
+                              {openRouterKey ? (
+                                <Badge variant="outline" className="text-xs">
+                                  {openRouterKey.key ? "Key" : "Tracking"}
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground hover:text-foreground">—</span>
+                              )}
+                            </Link>
                           </TableCell>
                           <TableCell>
                             {status?.status === "generating" && (
