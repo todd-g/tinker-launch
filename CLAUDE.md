@@ -25,38 +25,39 @@ A local project dashboard for rapid scaffolding and management of new projects. 
 
 ## Multi-Model Routing (Claude Code + Codex)
 
-You can shell out to the **Codex CLI (GPT-6.1 Sol)** via bash for *model diversity* — independent review and adversarial checks — not as a second labor pool. Orchestrate from this session; Claude subagents (Opus/Sonnet) are the default workers. (This mirrors the global routing config; kept here so it travels with the repo.)
+You can shell out to the **Codex CLI (GPT-6.1 Sol)** via bash. It's both a second labor pool and a model-diverse reviewer. Orchestrate from this session; route work to Claude subagents (Opus/Sonnet) or Codex by fit. (This mirrors the global routing config; kept here so it travels with the repo.)
 
-**Pool status (Sept 2026):** I use Codex interactively for dev, so the Plus quota is the *contested* pool. Claude is the working pool. Do not spend Codex quota on work a Claude subagent can do.
+**Pool status (Oct 2026):** I'm on ChatGPT Pro 20x, so Codex quota is no longer scarce. Both pools are working pools; split work across them by fit. Codex is still shared with my interactive sessions, so if it rate-limits, shift that work to Claude (and vice versa) and say so in the footer.
 
 **Axes** — *Intelligence* = hardest problem handled unsupervised; *Taste* = UI/UX, code quality, API design, copy, fit with existing patterns; *Cost* = spend against my subs, not API list price.
 
 | Model | Reach | Cost | Intelligence | Taste | Use for |
 |---|---|---|---|---|---|
-| **GPT-6.1 Sol** (`gpt-6.1-sol`) | `codex` CLI | Plus quota, shared with my own Codex sessions (~15–80 msgs/5h) | high | low | independent review, adversarial checks, escape hatch when Claude is rate-limited |
-| **Fable 5.1 / Opus 5.5** | this session + subagents | — | high | high | orchestration, UI/API, taste-critical code, final judgment; Opus is the default implementation subagent |
+| **GPT-6.1 Sol** (`gpt-6.1-sol`) | `codex` CLI | Pro 20x quota, ample headroom (shared with my own Codex sessions) | high | low | hard non-taste problems (debugging, backend/data logic), bulk investigation, test/build verification, mechanical settled-spec impl, independent review, adversarial checks |
+| **Fable 5.1 / Opus 5.5** | this session + subagents | — | high | high | orchestration, UI/API, taste-critical code, final judgment; Opus is the default subagent for taste-touching implementation |
 | **Sonnet 5.5** | subagents | cheap tier | mid-high (provisional) | mid-high (provisional) | narrow, fully-briefed subtasks: bulk reading, log/PDF digging, test/build runs, single-concern edits under Opus review |
 
 Sonnet 5.5 ratings are provisional (2026-09-29, community reports, not yet measured here). **Haiku is dropped** — Sonnet 5.5 is the cheap tier.
 
-### Default lanes (Claude subagents first; Codex for review only)
+### Default lanes (route by fit across both pools)
 
-Claude is the working pool. Route by lane:
+Taste is the dividing line: anything a user or integrator sees stays in Claude; raw-intelligence work with no taste component (debugging, backend/data logic, traces, migrations) can go to Codex. Fan out across both pools in parallel when work is independent.
 
 | Lane | Route | Notes |
 |---|---|---|
-| Settled-spec implementation | **Opus subagent** (Fable if taste-critical) | Claude reviews the diff before it counts |
-| Narrow, fully-briefed subtask (one concern, clear acceptance check) | **Sonnet 5.5 subagent** | escalate to Opus on the first miss, don't retry Sonnet |
-| Bulk reading, tracing, log/PDF digging | **Sonnet subagent** (Explore / general-purpose) | escalate to Opus if the first pass is weak |
-| Tests, builds, repro, noisy output | **Sonnet subagent** | reports the verdict, not the wall of output |
-| Second-opinion / adversarial review | `codex-review` | broad change, or user asks — **the one lane where Codex earns its quota** |
-| Codex investigate / implement / verify | `codex-*` skills | **only** on an explicit ask, or as an escape hatch when Claude subagents are rate-limited; say so in the footer |
+| Settled-spec impl that touches taste (UI, copy, house patterns, public API) | **Opus subagent** (Fable if taste-critical) | Claude reviews the diff before it counts |
+| Settled-spec impl that's logic-heavy or mechanical, not user-facing | `codex-implement` (isolated worktree) | Claude reviews the diff and fixes taste itself |
+| Narrow, fully-briefed subtask (one concern, clear acceptance check) | **Sonnet 5.5 subagent** | on the first miss, escalate (Opus for taste, Codex for logic); don't retry Sonnet |
+| Bulk reading, tracing, root-causing | `codex-investigate` when it takes reasoning; **Sonnet subagent** for lookup/extraction or when Claude-side tools are needed | keep the raw material out of this context |
+| Tests, builds, repro, noisy output | `codex-verify` or **Sonnet subagent**, whichever pool is idle | reports the verdict, not the wall of output |
+| Second-opinion / adversarial review | `codex-review` | every substantial diff (multi-file, logic-heavy, security-touching), or when I ask |
+| Hard bug or risky design | Codex **and** a Claude subagent, independently | compare; disagreement is signal |
 
-There is also a **`codex-worker` subagent** (Sonnet, Bash-only) that runs one Codex call and relays the result — use it for a review/adversarial stage inside Workflow scripts where GPT can't be a stage model, not as a general fan-out pool.
+There is also a **`codex-worker` subagent** (Sonnet, Bash-only) that runs one Codex call and relays the result — use it to run several Codex calls in parallel, and for any Codex stage inside Workflow scripts (GPT can't be a stage model).
 
 **Stay in Claude for:** UI, copy, API/SDK shape, naming, architecture, final judgment, and reviewing everything Codex produced. GPT-6.1 Sol writes TS like a Python dev and won't follow this repo's Admin/observability conventions unless the prompt points it at this file. **Keep reasoning effort on `high`** in Claude (xhigh/max overthink per-step and blow up cost); Pin `-m gpt-6.1-sol` on every `codex exec` (and `-c model="gpt-6.1-sol"` on `codex review`) — `~/.codex/config.toml` defaults to `gpt-6-astra` for my interactive sessions. Effort comes from config (high); pass `-c model_reasoning_effort="medium"` for routine calls or `"low"` for mechanical ones.
 
-**The binary:** `codex` on PATH at `/opt/homebrew/bin/codex` (`brew install --cask codex`, self-updating), authed on ChatGPT Plus — check with `codex login status`.
+**The binary:** `codex` on PATH at `/opt/homebrew/bin/codex` (`brew install --cask codex`, self-updating), authed on ChatGPT Pro 20x — check with `codex login status`.
 
 ```bash
 codex exec -m gpt-6.1-sol -s read-only "<prompt>" -o out.txt < /dev/null           # investigate; -o = clean final answer only
@@ -67,7 +68,7 @@ codex review -c model="gpt-6.1-sol" --uncommitted < /dev/null                   
 
 **Gotchas (load-bearing):** always `< /dev/null` or a backgrounded run hangs on stdin forever. Always `-o <file>` on `exec` — it writes only the final message, so you never parse the noisy transcript (`codex review` has no `-o`; take the last `codex` block before `tokens used`). Point Codex at this CLAUDE.md when it writes code. Isolate write runs in a `git worktree` — but check `git status` first, because a fresh worktree has only committed work, and this repo currently has a lot untracked; Codex will recreate a missing file by copying it, handing you a duplicate rather than an edit. Verify its claims against the code — for implement runs read the `git diff`, not its summary. Describe the *outcome* you want, not just a pattern to copy: Codex is literal enough to follow a stated pattern into a wrong answer. If Codex finds nothing, that's a valid answer; don't loop.
 
-**Show your model mix.** After any substantial multi-step task, end with a one-line footer of what was routed where — **including when everything stayed in Claude** (no delegation). Qualitative only, never invent token/cost numbers. E.g. `Models: Opus (everything — no delegation)`, `Models: Fable (orchestration) · Opus (impl subagent) · Sonnet×2 (log digging, parallel)`, or `Models: Opus (impl) · Codex/6.1 (independent review)`. Skip it on trivial edits and conversational turns.
+**Show your model mix.** After any substantial multi-step task, end with a one-line footer of what was routed where — **including when everything stayed in Claude** (no delegation). Qualitative only, never invent token/cost numbers. E.g. `Models: Opus (everything — no delegation)`, `Models: Fable (orchestration) · Opus (impl subagent) · Sonnet×2 (log digging, parallel)`, `Models: Opus (UI) · Codex/6.1 (root-cause trace + backend impl)`, or `Models: Opus (impl) · Codex/6.1 (independent review)`. Skip it on trivial edits and conversational turns.
 
 ## Deployments & Credentials
 
