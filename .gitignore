@@ -55,6 +55,17 @@ credentials.yaml
 .claude/worktrees/
 .claude/settings.local.json
 
-# Client-specific (Minima) devops docs — kept on disk, out of the public repo
-/docs/brainstorms/minima-devops-*
-/docs/brainstorms/pdf/minima-devops-*
+# Idea research, client docs and prototypes — kept on disk, out of the public repo
+/docs/brainstorms/
+/aspc-buckle-research/
+/courtreserve-research.html
+/tinker-launch-build-review.*
+/*.png
+/scripts/fix-*.cjs
+
+# Bronco demo prototype (and its isolated build output)
+/src/app/bronco-demo/
+/src/lib/bronco-demo/
+/public/bronco-demo/
+/scripts/bronco-demo/
+/.next-bronco-demo/

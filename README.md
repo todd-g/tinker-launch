@@ -102,7 +102,7 @@ When you create a new project, these files are generated automatically:
 | `.gitignore` | Standard Next.js + Convex ignores |
 | `.tinker.yaml` | Project metadata for the port scanner |
 
-The default stack is **Next.js + Tailwind CSS 4 + shadcn/ui + Convex + Vercel**, but you can edit the scaffolded files after creation.
+The default stack is **Next.js + Tailwind CSS + shadcn/ui + Convex + Vercel** (always latest stable), but you can edit the scaffolded files after creation.
 
 ---
 

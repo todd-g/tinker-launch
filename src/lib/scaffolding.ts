@@ -29,20 +29,23 @@ function generateClaudeMd(config: ProjectConfig): string {
 ${config.description}
 
 ## Tech Stack
-- Next.js (latest stable, App Router)
-- Tailwind CSS 4 with shadcn/ui (sidebar-08 variant)
-- Convex for database/backend
-- Vercel for hosting
-- Use Vercel CLI and Convex CLI for all deployments
+@TECH_STACK.md
 
 ## Development
 - Run \`npm run dev\` for Next.js dev server
 - Run \`npx convex dev\` for Convex in development mode
-- Local dev server runs on port ${config.port}
+- Local dev server runs on port ${config.port} (the \`dev\` script pins \`-p ${config.port}\`)
+- Deploy with the Vercel and Convex CLIs — through \`./cli.sh\` when it exists (see Deployments & Credentials)
 
-## Commands
-- \`vercel\` - Deploy to Vercel
-- \`npx convex deploy\` - Deploy Convex functions
+## Working Agreement
+
+**Autonomy.** Once we've agreed on a plan or task list, execute it to completion without checking in. Don't stop to ask "should I continue?" between items. Only stop for: (1) destructive or production-facing actions — deploys, deletes, migrations, anything touching prod data; (2) a genuine fork where my answer changes what you'd build; (3) being truly blocked. New ideas I mention mid-run go onto the task list, not into an immediate detour.
+
+**Transient errors.** On rate limits, overloads, or 5xx errors from any API or tool, wait and retry up to 3 times before stopping. Never end a work session over a transient infrastructure error without retrying.
+
+**Approach visibility.** When starting a feature or refactor, state your approach in <=3 lines as you begin — what you'll reuse vs. create, and what existing behavior must not change — then proceed immediately. This is not a request for approval; do not wait for a reply. It exists so I can interrupt early if the approach is wrong. Prefer extending existing components over duplicating them.
+
+**UI self-verification.** After visual changes, check your own rendered output (screenshot or inspect: one content width, one type scale, semantic colors correct, new controls actually visible on the target page) and fix what you find before showing me. Don't present UI work, or ask me to look, until your own check passes.
 `;
 
   if (config.gitAuthor) {
@@ -71,9 +74,11 @@ git config user.name "${config.gitAuthor.name}"
 function generateTechStackMd(config: ProjectConfig): string {
   return `# Tech Stack
 
+Always install the latest stable release of every package (\`@latest\`). Never pin a version from memory.
+
 ## Frontend
-- **Framework**: Next.js (latest stable, App Router)
-- **Styling**: Tailwind CSS 4
+- **Framework**: Next.js (App Router)
+- **Styling**: Tailwind CSS
 - **Components**: shadcn/ui with sidebar-08 layout
 
 ## Backend
@@ -87,7 +92,7 @@ function generateTechStackMd(config: ProjectConfig): string {
 ## Development Setup
 1. \`npm install\`
 2. \`npx convex dev\` (in separate terminal)
-3. \`npm run dev\`
+3. \`npm run dev\` — the \`dev\` script must be \`next dev -p ${config.port}\` so it matches \`.tinker.yaml\`
 4. Open \`http://localhost:${config.port}\`
 `;
 }
